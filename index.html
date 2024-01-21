@@ -1,0 +1,61 @@
+<html>
+    <meta http-equiv="Content-Security-Policy" content="default-src 'self' data: gap: https://ssl.gstatic.com; connect-src ; script-src 'self' 'unsafe-inline' 'unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src * blob:; media-src * blob:">
+    <head>
+        <style>
+            .flt_lef{float:left;}
+            .tex_rig{text-align:right;}
+            .mar_r30{margin-right:30px;}
+            .tbl_td_fnt_s12 td{font-size:12px;}
+        </style>
+        <script>
+            //***************************************//
+            function st_sub(){
+                document.getElementById('files').addEventListener('change', handleFileSelect, false);
+            }
+            //*************************************//
+            function sleep(second) {
+                return new Promise(resolve => {
+                    setTimeout(() => {
+                        resolve()
+                    }, second * 1000)
+                })
+            }
+            //*************************************//
+            async function handleFileSelect(evt){
+                var str_music_list=""
+                for(int_loop2=0; int_loop2 < evt.target.files.length; int_loop2++){
+                    auo.src = URL.createObjectURL(this.files[int_loop2]);
+                    await sleep(0.5)
+                    int1 = document.getElementById("auo").duration
+                    await sleep(0.1)
+                    str_music_list= str_music_list + "<tr><td>" + this.files[int_loop2].name + "</td><td class='tex_rig'>" + int1 + "</td>"
+                }
+                music_list.innerHTML=str_music_list
+                //*********************************************//
+                for(int_loop1=0; int_loop1<evt.target.files.length;int_loop1++){
+                    title.textContent=this.files[int_loop1].name
+                    auo.src = URL.createObjectURL(this.files[int_loop1]);
+                    await sleep(1)
+                    int1 = document.getElementById("auo").duration
+                    await sleep(1)
+                    auo.play();
+                    await sleep(int1)
+                }
+            }
+        </script>
+    </head>
+
+    <body onload="st_sub()">
+        <div class="flt_lef mar_r30">
+            <span id="title"></span><br />
+            <audio controls id="auo"></audio>
+        </div>
+
+        <div class="flt_lef">
+            <input type="file" id="files" class="disp_no" name="files[]" multiple /><br />
+            <table id="music_list" class="tbl_td_fnt_s12"></table>
+        </div>
+    </body>
+
+
+</html>
