@@ -1,59 +1,104 @@
-<html>
-  <title>オーディオプレイリスター</title>  
-    <head>
-        <style>
-            .flt_lef{float:left;}
-            .tex_rig{text-align:right;}
-            .mar_r30{margin-right:30px;}
-            .tbl_td_fnt_s12 td{font-size:12px;}
-        </style>
-        <script>
-            //***************************************//
-            function st_sub(){
-                document.getElementById('files').addEventListener('change', handleFileSelect, false);
-            }
-            //*************************************//
-            function sleep(second) {
-                return new Promise(resolve => {
-                    setTimeout(() => {
-                        resolve()
-                    }, second * 1000)
-                })
-            }
-            //*************************************//
-            async function handleFileSelect(evt){
-                var str_music_list=""
-                for(int_loop2=0; int_loop2 < evt.target.files.length; int_loop2++){
-                    auo.src = URL.createObjectURL(this.files[int_loop2]);
-                    await sleep(0.5)
-                    int1 = document.getElementById("auo").duration
-                    await sleep(0.1)
-                    str_music_list= str_music_list + "<tr><td>" + this.files[int_loop2].name + "</td><td class='tex_rig'>" + int1 + "</td>"
-                }
-                music_list.innerHTML=str_music_list
-                //*********************************************//
-                for(int_loop1=0; int_loop1<evt.target.files.length;int_loop1++){
-                    title.textContent=this.files[int_loop1].name
-                    auo.src = URL.createObjectURL(this.files[int_loop1]);
-                    await sleep(1)
-                    int1 = document.getElementById("auo").duration
-                    await sleep(1)
-                    auo.play();
-                    await sleep(int1)
-                }
-            }
-        </script>
-    </head>
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="utf-8">
+    <title>オーディオプレイリスター</title>
+</head>
+<body>
+  <h1>オーディオプレイリスター</h1>
+  <br><h>曲を選択して再生します。曲が終わると自動で次の曲に移動します。</h>
+    <input type="file" accept=".mp3, .wav" id="fileInput">
+    <audio controls id="audioPlayer"></audio>
+    <p id="songInfo"></p>
+    <table id="playHistoryTable">
+        <thead>
+            <tr>
+                <th>再生履歴</th>
+                <th>長さ</th>
+            </tr>
+        </thead>
+        <tbody></tbody>
+    </table>
+    <button id="prevButton">前の曲</button>
+    <button id="nextButton">次の曲</button>
 
-    <body onload="st_sub()">
-        <div class="flt_lef mar_r30">
-            <span id="title"></span><br />
-            <audio controls id="auo"></audio>
-        </div>
+    <script src="https://ajax.googleapis.com/ajax/libs/jquery/2.2.4/jquery.min.js"></script>
+    <script>
+        const audioPlayer = document.getElementById("audioPlayer");
+        const songInfo = document.getElementById("songInfo");
+        const playHistoryTable = document.getElementById("playHistoryTable").getElementsByTagName("tbody")[0];
+        const prevButton = document.getElementById("prevButton");
+        const nextButton = document.getElementById("nextButton");
 
-        <div class="flt_lef">
-            <input type="file" id="files" class="disp_no" name="files[]" multiple /><br />
-            <table id="music_list" class="tbl_td_fnt_s12"></table>
-        </div>
-    </body>
+        let playlist = []; // プレイリスト
+        let currentTrackIndex = 0; // 現在再生中の曲のインデックス
+
+        // ファイル選択ダイアログを表示する
+        $("#fileInput").on("change", function() {
+            const file = this.files[0];
+            if (file) {
+                audioPlayer.src = URL.createObjectURL(file);
+                audioPlayer.play();
+
+                // 曲のタイトルと長さを表示
+                songInfo.textContent = `再生中の曲: ${file.name} (${getFormattedDuration(audioPlayer.duration)})`;
+
+                // プレイリストに追加
+                playlist.push(file);
+                currentTrackIndex = playlist.length - 1;
+
+                // 再生履歴を表に追加
+                const newRow = playHistoryTable.insertRow();
+                newRow.insertCell(0).textContent = file.name;
+                newRow.insertCell(1).textContent = getFormattedDuration(audioPlayer.duration);
+
+                // 曲の再生が終了したら次の曲を再生
+                audioPlayer.addEventListener("ended", playNextTrack);
+            }
+        });
+
+        // 音声の長さを分:秒形式に整形する関数
+        function getFormattedDuration(durationInSeconds) {
+            const minutes = Math.floor(durationInSeconds / 60);
+            const seconds = Math.floor(durationInSeconds % 60);
+            return `${minutes}:${seconds < 10 ? '0' : ''}${seconds}`;
+        }
+
+        // 前の曲を再生
+        prevButton.addEventListener("click", function() {
+            currentTrackIndex = (currentTrackIndex - 1 + playlist.length) % playlist.length;
+            playTrack(playlist[currentTrackIndex]);
+        });
+
+        // 次の曲を再生
+        nextButton.addEventListener("click", playNextTrack);
+
+        // 曲を再生する関数
+        function playTrack(file) {
+            audioPlayer.src = URL.createObjectURL(file);
+            audioPlayer.play();
+            songInfo.textContent = `再生中の曲: ${file.name} (${getFormattedDuration(audioPlayer.duration)})`;
+            updatePlayHistory(file.name);
+        }
+
+        // 次の曲を再生する関数
+        function playNextTrack() {
+            currentTrackIndex = (currentTrackIndex + 1) % playlist.length;
+            playTrack(playlist[currentTrackIndex]);
+        }
+
+        // 再生履歴を更新する関数
+        function updatePlayHistory(trackName) {
+            playHistoryTable.innerHTML = ""; // 一旦クリア
+            for (let i = 0; i < playlist.length; i++) {
+                const newRow = playHistoryTable.insertRow();
+                newRow.insertCell(0).textContent = playlist[i].name;
+                newRow.insertCell(1).textContent = getFormattedDuration(audioPlayer.duration);
+                if (playlist[i].name === trackName) {
+                    newRow.style.backgroundColor = "#f0f0f0"; // 現在再生中の曲をハイライト
+                }
+            }
+        }
+    </script>
+</body>
 </html>
