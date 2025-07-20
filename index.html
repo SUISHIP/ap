@@ -1,103 +1,175 @@
 <!DOCTYPE html>
 <html lang="ja">
 <head>
-    <meta charset="utf-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>オーディオプレイリスター</title>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>メディアプレイリスター（音声・動画＋サムネイル）</title>
+  <style>
+    #mediaPlayer {
+      width: 100%;
+      max-width: 640px;
+      display: block;
+      margin-bottom: 1em;
+    }
+  </style>
 </head>
 <body>
-    <input type="file" accept=".mp3,.wav,.ogg,.m4a,.aac,.flac,.wma,.aiff,.mp4,.m4v,.mov,.webm,.avi,.wmv,.mkv,.flv,.3gp" id="fileInput">
-    <audio controls autoplay id="audioPlayer"></audio>
-    <p id="songInfo"></p>
-    <table id="playHistoryTable">
-        <thead>
-            <tr>
-                <th>再生履歴</th>
-                <th>長さ</th>
-            </tr>
-        </thead>
-        <tbody></tbody>
-    </table>
-    <button id="prevButton">前の曲</button>
-    <button id="nextButton">次の曲</button>
+  <input type="file" multiple id="fileInput" accept=".mp3,.wav,.ogg,.m4a,.aac,.flac,.wma,.aiff,.mp4,.m4v,.mov,.webm,.avi,.wmv,.mkv,.flv,.3gp"><br>
+  <div id="playerContainer"></div>
+  <p id="songInfo"></p>
+  <table>
+    <thead>
+      <tr>
+        <th>サムネイル</th>
+        <th>メディア名</th>
+        <th>長さ</th>
+      </tr>
+    </thead>
+    <tbody id="playHistoryTable"></tbody>
+  </table>
+  <button id="prevButton">前のメディア</button>
+  <button id="nextButton">次のメディア</button>
 
-    <script src="https://ajax.googleapis.com/ajax/libs/jquery/2.2.4/jquery.min.js"></script>
-    <script>
-        const audioPlayer = document.getElementById("audioPlayer");
-        const songInfo = document.getElementById("songInfo");
-        const playHistoryTable = document.getElementById("playHistoryTable").getElementsByTagName("tbody")[0];
-        const prevButton = document.getElementById("prevButton");
-        const nextButton = document.getElementById("nextButton");
+<script>
+const fileInput = document.getElementById("fileInput");
+const playerContainer = document.getElementById("playerContainer");
+const songInfo = document.getElementById("songInfo");
+const playHistoryTable = document.getElementById("playHistoryTable");
+const prevButton = document.getElementById("prevButton");
+const nextButton = document.getElementById("nextButton");
 
-        let playlist = []; // プレイリスト
-        let currentTrackIndex = 0; // 現在再生中の曲のインデックス
+let playlist = []; // {file, url, duration, isVideo, thumbnail}
+let currentTrackIndex = 0;
+let currentPlayer = null;
 
-        // ファイル選択ダイアログを表示する
-        $("#fileInput").on("change", function() {
-            const file = this.files[0];
-            if (file) {
-                audioPlayer.src = URL.createObjectURL(file);
-                audioPlayer.play();
+fileInput.addEventListener("change", () => {
+  const files = [...fileInput.files];
+  files.forEach(file => addToPlaylist(file));
+  fileInput.value = "";
+});
 
-                // 曲のタイトルと長さを表示
-                songInfo.textContent = `再生中の曲: ${file.name} (${getFormattedDuration(audioPlayer.duration)})`;
+function addToPlaylist(file) {
+  const url = URL.createObjectURL(file);
+  const isVideo = file.type.startsWith("video/");
+  const tempEl = document.createElement(isVideo ? "video" : "audio");
+  tempEl.preload = "metadata";
+  tempEl.src = url;
 
-                // プレイリストに追加
-                playlist.push(file);
-                currentTrackIndex = playlist.length - 1;
+  tempEl.addEventListener("loadedmetadata", async () => {
+    const duration = tempEl.duration;
+    let thumbnail = null;
 
-                // 再生履歴を表に追加
-                const newRow = playHistoryTable.insertRow();
-                newRow.insertCell(0).textContent = file.name;
-                newRow.insertCell(1).textContent = getFormattedDuration(audioPlayer.duration);
+    if (isVideo) {
+      thumbnail = await generateThumbnail(url);
+    }
 
-                // 曲の再生が終了したら次の曲を再生
-                audioPlayer.addEventListener("ended", playNextTrack);
-            }
-        });
+    playlist.push({ file, url, duration, isVideo, thumbnail });
 
-        // 音声の長さを分:秒形式に整形する関数
-        function getFormattedDuration(durationInSeconds) {
-            const minutes = Math.floor(durationInSeconds / 60);
-            const seconds = Math.floor(durationInSeconds % 60);
-            return `${minutes}:${seconds < 10 ? '0' : ''}${seconds}`;
-        }
+    if (playlist.length === 1) {
+      playTrack(0);
+    } else {
+      updatePlayHistory();
+    }
 
-        // 前の曲を再生
-        prevButton.addEventListener("click", function() {
-            currentTrackIndex = (currentTrackIndex - 1 + playlist.length) % playlist.length;
-            playTrack(playlist[currentTrackIndex]);
-        });
+    tempEl.remove();
+  });
+}
 
-        // 次の曲を再生
-        nextButton.addEventListener("click", playNextTrack);
+function generateThumbnail(videoUrl) {
+  return new Promise((resolve) => {
+    const video = document.createElement("video");
+    video.src = videoUrl;
+    video.crossOrigin = "anonymous";
+    video.muted = true;
+    video.currentTime = 0.1;
 
-        // 曲を再生する関数
-        function playTrack(file) {
-            audioPlayer.src = URL.createObjectURL(file);
-            audioPlayer.play();
-            songInfo.textContent = `再生中の曲: ${file.name} (${getFormattedDuration(audioPlayer.duration)})`;
-            updatePlayHistory(file.name);
-        }
+    video.addEventListener("loadeddata", () => {
+      const canvas = document.createElement("canvas");
+      canvas.width = 160;
+      canvas.height = 90;
+      const ctx = canvas.getContext("2d");
+      ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+      resolve(canvas.toDataURL("image/png"));
+    });
 
-        // 次の曲を再生する関数
-        function playNextTrack() {
-            currentTrackIndex = (currentTrackIndex + 1) % playlist.length;
-            playTrack(playlist[currentTrackIndex]);
-        }
+    video.addEventListener("error", () => {
+      resolve(null); // fallback
+    });
+  });
+}
 
-        // 再生履歴を更新する関数
-        function updatePlayHistory(trackName) {
-            playHistoryTable.innerHTML = ""; // 一旦クリア
-            for (let i = 0; i < playlist.length; i++) {
-                const newRow = playHistoryTable.insertRow();
-                newRow.insertCell(0).textContent = playlist[i].name;
-                newRow.insertCell(1).textContent = getFormattedDuration(audioPlayer.duration);
-                if (playlist[i].name === trackName) {
-                    newRow.style.backgroundColor = "#f0f0f0"; // 現在再生中の曲をハイライト
-                }
-            }
-        }
-    </script>
+function playTrack(index) {
+  if (!playlist[index]) return;
+  const { file, url, duration, isVideo } = playlist[index];
+  currentTrackIndex = index;
+
+  if (currentPlayer) {
+    currentPlayer.pause();
+    currentPlayer.remove();
+  }
+
+  currentPlayer = document.createElement(isVideo ? "video" : "audio");
+  currentPlayer.id = "mediaPlayer";
+  currentPlayer.controls = true;
+  currentPlayer.autoplay = true;
+  currentPlayer.src = url;
+  if (isVideo) currentPlayer.width = 640;
+  currentPlayer.addEventListener("ended", playNextTrack);
+
+  playerContainer.innerHTML = "";
+  playerContainer.appendChild(currentPlayer);
+
+  songInfo.textContent = `再生中: ${file.name} (${getFormattedDuration(duration)})`;
+  updatePlayHistory();
+}
+
+function playNextTrack() {
+  if (!playlist.length) return;
+  const nextIndex = (currentTrackIndex + 1) % playlist.length;
+  playTrack(nextIndex);
+}
+
+function playPrevTrack() {
+  if (!playlist.length) return;
+  const prevIndex = (currentTrackIndex - 1 + playlist.length) % playlist.length;
+  playTrack(prevIndex);
+}
+
+prevButton.addEventListener("click", playPrevTrack);
+nextButton.addEventListener("click", playNextTrack);
+
+function updatePlayHistory() {
+  playHistoryTable.innerHTML = "";
+  playlist.forEach((track, i) => {
+    const row = playHistoryTable.insertRow();
+    if (i === currentTrackIndex) row.classList.add("current");
+
+    const thumbCell = row.insertCell();
+    const nameCell = row.insertCell();
+    const durCell = row.insertCell();
+
+    if (track.thumbnail) {
+      const img = document.createElement("img");
+      img.src = track.thumbnail;
+      img.className = "thumb";
+      thumbCell.appendChild(img);
+    } else {
+      thumbCell.textContent = track.isVideo ? "🎬" : "🎵";
+    }
+
+    nameCell.textContent = track.file.name;
+    durCell.textContent = getFormattedDuration(track.duration);
+
+    row.addEventListener("click", () => playTrack(i));
+  });
+}
+
+function getFormattedDuration(seconds) {
+  if (!isFinite(seconds)) return "--:--";
+  const m = Math.floor(seconds / 60);
+  const s = Math.floor(seconds % 60);
+  return `${m}:${s < 10 ? "0" : ""}${s}`;
+}
+</script>
 </body>
 </html>
