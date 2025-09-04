@@ -29,6 +29,7 @@
   </table>
   <button id="prevButton">前のメディア</button>
   <button id="nextButton">次のメディア</button>
+  <button id="sleepTimerButton">タイマー: オフ</button>
 
 <script>
 const fileInput = document.getElementById("fileInput");
@@ -170,6 +171,61 @@ function getFormattedDuration(seconds) {
   const s = Math.floor(seconds % 60);
   return `${m}:${s < 10 ? "0" : ""}${s}`;
 }
+  
+const sleepTimerButton = document.getElementById("sleepTimerButton");
+const timerOptions = [5, 10, 15, 30, 60, 120, 0]; // 分
+let timerIndex = 0;
+let sleepTimeout = null;
+let fadeOutInterval = null;
+
+sleepTimerButton.addEventListener("click", () => {
+  timerIndex = (timerIndex + 1) % timerOptions.length;
+  const minutes = timerOptions[timerIndex];
+  setSleepTimer(minutes);
+});
+
+function setSleepTimer(minutes) {
+  if (sleepTimeout) {
+    clearTimeout(sleepTimeout);
+    sleepTimeout = null;
+  }
+  if (fadeOutInterval) {
+    clearInterval(fadeOutInterval);
+    fadeOutInterval = null;
+  }
+
+  if (minutes === 0) {
+    sleepTimerButton.textContent = "タイマー: オフ";
+    return;
+  }
+
+  sleepTimerButton.textContent = `タイマー: ${minutes}分`;
+
+  sleepTimeout = setTimeout(() => {
+    startFadeOutAndStop();
+  }, minutes * 60 * 1000);
+}
+
+function startFadeOutAndStop() {
+  if (!currentPlayer) return;
+
+  let duration = 30; // 30秒
+  let steps = 30; // 1秒ごとに
+  let stepCount = 0;
+  let initialVolume = currentPlayer.volume;
+
+  fadeOutInterval = setInterval(() => {
+    stepCount++;
+    currentPlayer.volume = Math.max(0, initialVolume * (1 - stepCount / steps));
+    if (stepCount >= steps) {
+      clearInterval(fadeOutInterval);
+      currentPlayer.pause();
+      currentPlayer.currentTime = 0;
+      sleepTimerButton.textContent = "タイマー: オフ";
+    }
+  }, duration * 1000 / steps);
+}
 </script>
+
 </body>
 </html>
