@@ -1,35 +1,84 @@
 <!DOCTYPE html>
 <html lang="ja">
 <head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>メディアプレイリスター（音声・動画＋サムネイル）</title>
-  <style>
-    #mediaPlayer {
-      width: 100%;
-      max-width: 640px;
-      display: block;
-      margin-bottom: 1em;
-    }
-  </style>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>メディアプレイリスター（音声・動画＋サムネイル＋EQ/ピッチ）</title>
+    <style>
+        #mediaPlayer {
+            width: 100%;
+            max-width: 640px;
+            display: block;
+            margin-bottom: 1em;
+        }
+        .thumb {
+            width: 80px;
+            height: 45px;
+            object-fit: cover;
+        }
+        .current {
+            background-color: #f0f0f0;
+        }
+        /* イコライザーとピッチコントロールのスタイル */
+        #audioControls {
+            margin-top: 20px;
+            padding: 10px;
+            border: 1px solid #ccc;
+            border-radius: 5px;
+        }
+        .eq-band, #pitchControl {
+            margin-bottom: 10px;
+        }
+        .eq-band label, #pitchControl label {
+            display: inline-block;
+            width: 50px;
+            text-align: right;
+            margin-right: 10px;
+            font-size: small;
+        }
+    </style>
 </head>
 <body>
-  <input type="file" multiple id="fileInput" accept=".mp3,.wav,.ogg,.m4a,.aac,.flac,.wma,.aiff,.mp4,.m4v,.mov,.webm,.avi,.wmv,.mkv,.flv,.3gp"><br>
-  <div id="playerContainer"></div>
-  <p id="songInfo"></p>
-  <table>
-    <thead>
-      <tr>
-        <th>サムネイル</th>
-        <th>メディア名</th>
-        <th>長さ</th>
-      </tr>
-    </thead>
-    <tbody id="playHistoryTable"></tbody>
-  </table>
-  <button id="prevButton">前のメディア</button>
-  <button id="nextButton">次のメディア</button>
-  <button id="sleepTimerButton">タイマー: オフ</button>
+    <input type="file" multiple id="fileInput" accept=".mp3,.wav,.ogg,.m4a,.aac,.flac,.wma,.aiff,.mp4,.m4v,.mov,.webm,.avi,.wmv,.mkv,.flv,.3gp"><br>
+    
+    <div id="playerContainer"></div>
+    <p id="songInfo"></p>
+    
+    <div id="audioControls">
+        <h3>オーディオ設定</h3>
+        <div id="equalizer">
+            <h4>イコライザー (dB)</h4>
+            <div class="eq-band"><label for="eq60">60Hz:</label><input type="range" id="eq60" min="-12" max="12" value="0" step="0.1"><span class="gain-value">0.0</span></div>
+            <div class="eq-band"><label for="eq250">250Hz:</label><input type="range" id="eq250" min="-12" max="12" value="0" step="0.1"><span class="gain-value">0.0</span></div>
+            <div class="eq-band"><label for="eq1k">1kHz:</label><input type="range" id="eq1k" min="-12" max="12" value="0" step="0.1"><span class="gain-value">0.0</span></div>
+            <div class="eq-band"><label for="eq4k">4kHz:</label><input type="range" id="eq4k" min="-12" max="12" value="0" step="0.1"><span class="gain-value">0.0</span></div>
+            <div class="eq-band"><label for="eq16k">16kHz:</label><input type="range" id="eq16k" min="-12" max="12" value="0" step="0.1"><span class="gain-value">0.0</span></div>
+        </div>
+        
+        <div id="pitchControl">
+            <h4>ピッチ/再生速度</h4>
+            <label for="pitch">速度:</label>
+            <input type="range" id="pitch" min="0.5" max="2.0" value="1.0" step="0.01">
+            <span id="pitchValue">1.00</span> (x倍速)
+        </div>
+    </div>
+    
+    <br>
+    
+    <table>
+        <thead>
+            <tr>
+                <th>サムネイル</th>
+                <th>メディア名</th>
+                <th>長さ</th>
+            </tr>
+        </thead>
+        <tbody id="playHistoryTable"></tbody>
+    </table>
+    
+    <button id="prevButton">前のメディア</button>
+    <button id="nextButton">次のメディア</button>
+    <button id="sleepTimerButton">タイマー: オフ</button>
 
 <script>
 const fileInput = document.getElementById("fileInput");
@@ -39,139 +88,242 @@ const playHistoryTable = document.getElementById("playHistoryTable");
 const prevButton = document.getElementById("prevButton");
 const nextButton = document.getElementById("nextButton");
 
+// イコライザーとピッチ関連の要素
+const eqBands = [
+    { freq: 60, input: document.getElementById('eq60') },
+    { freq: 250, input: document.getElementById('eq250') },
+    { freq: 1000, input: document.getElementById('eq1k') },
+    { freq: 4000, input: document.getElementById('eq4k') },
+    { freq: 16000, input: document.getElementById('eq16k') }
+];
+const pitchInput = document.getElementById('pitch');
+const pitchValueSpan = document.getElementById('pitchValue');
+
 let playlist = []; // {file, url, duration, isVideo, thumbnail}
 let currentTrackIndex = 0;
 let currentPlayer = null;
 
+// Web Audio APIのコンテキスト
+let audioContext = null;
+let sourceNode = null;
+let eqNodes = [];
+
+// --- ファイル操作とプレイリスト ---
+
 fileInput.addEventListener("change", () => {
-  const files = [...fileInput.files];
-  files.forEach(file => addToPlaylist(file));
-  fileInput.value = "";
+    const files = [...fileInput.files];
+    files.forEach(file => addToPlaylist(file));
+    fileInput.value = "";
 });
 
 function addToPlaylist(file) {
-  const url = URL.createObjectURL(file);
-  const isVideo = file.type.startsWith("video/");
-  const tempEl = document.createElement(isVideo ? "video" : "audio");
-  tempEl.preload = "metadata";
-  tempEl.src = url;
+    const url = URL.createObjectURL(file);
+    const isVideo = file.type.startsWith("video/");
+    const tempEl = document.createElement(isVideo ? "video" : "audio");
+    tempEl.preload = "metadata";
+    tempEl.src = url;
 
-  tempEl.addEventListener("loadedmetadata", async () => {
-    const duration = tempEl.duration;
-    let thumbnail = null;
+    tempEl.addEventListener("loadedmetadata", async () => {
+        const duration = tempEl.duration;
+        let thumbnail = null;
 
-    if (isVideo) {
-      thumbnail = await generateThumbnail(url);
-    }
+        if (isVideo) {
+            thumbnail = await generateThumbnail(url);
+        }
 
-    playlist.push({ file, url, duration, isVideo, thumbnail });
+        playlist.push({ file, url, duration, isVideo, thumbnail });
 
-    if (playlist.length === 1) {
-      playTrack(0);
-    } else {
-      updatePlayHistory();
-    }
+        if (playlist.length === 1 && !currentPlayer) {
+            // 初回再生時に、再生を開始する
+            playTrack(0);
+        } else {
+            updatePlayHistory();
+        }
 
-    tempEl.remove();
-  });
+        tempEl.remove();
+    });
 }
 
 function generateThumbnail(videoUrl) {
-  return new Promise((resolve) => {
-    const video = document.createElement("video");
-    video.src = videoUrl;
-    video.crossOrigin = "anonymous";
-    video.muted = true;
-    video.currentTime = 0.1;
+    return new Promise((resolve) => {
+        const video = document.createElement("video");
+        video.src = videoUrl;
+        video.crossOrigin = "anonymous";
+        video.muted = true;
+        video.currentTime = 0.1;
 
-    video.addEventListener("loadeddata", () => {
-      const canvas = document.createElement("canvas");
-      canvas.width = 160;
-      canvas.height = 90;
-      const ctx = canvas.getContext("2d");
-      ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
-      resolve(canvas.toDataURL("image/png"));
-    });
+        video.addEventListener("loadeddata", () => {
+            const canvas = document.createElement("canvas");
+            canvas.width = 160;
+            canvas.height = 90;
+            const ctx = canvas.getContext("2d");
+            ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+            resolve(canvas.toDataURL("image/png"));
+        });
 
-    video.addEventListener("error", () => {
-      resolve(null); // fallback
+        video.addEventListener("error", () => {
+            resolve(null); // fallback
+        });
     });
-  });
 }
+
+// --- メディア再生とWeb Audio API接続 ---
 
 function playTrack(index) {
-  if (!playlist[index]) return;
-  const { file, url, duration, isVideo } = playlist[index];
-  currentTrackIndex = index;
+    if (!playlist[index]) return;
+    const { file, url, duration, isVideo } = playlist[index];
+    currentTrackIndex = index;
 
-  if (currentPlayer) {
-    currentPlayer.pause();
-    currentPlayer.remove();
-  }
+    if (currentPlayer) {
+        currentPlayer.pause();
+        currentPlayer.remove();
+        // 古いオーディオ接続を解除
+        if (sourceNode) sourceNode.disconnect();
+    }
 
-  currentPlayer = document.createElement(isVideo ? "video" : "audio");
-  currentPlayer.id = "mediaPlayer";
-  currentPlayer.controls = true;
-  currentPlayer.autoplay = true;
-  currentPlayer.src = url;
-  if (isVideo) currentPlayer.width = 640;
-  currentPlayer.addEventListener("ended", playNextTrack);
+    currentPlayer = document.createElement(isVideo ? "video" : "audio");
+    currentPlayer.id = "mediaPlayer";
+    currentPlayer.controls = true;
+    currentPlayer.autoplay = true;
+    currentPlayer.src = url;
+    if (isVideo) currentPlayer.width = 640;
+    currentPlayer.addEventListener("ended", playNextTrack);
+    
+    // ピッチ変更はHTMLMediaElementのplaybackRateで直接制御するため、初期値を設定
+    currentPlayer.playbackRate = parseFloat(pitchInput.value);
 
-  playerContainer.innerHTML = "";
-  playerContainer.appendChild(currentPlayer);
+    playerContainer.innerHTML = "";
+    playerContainer.appendChild(currentPlayer);
 
-  songInfo.textContent = `再生中: ${file.name} (${getFormattedDuration(duration)})`;
-  updatePlayHistory();
+    songInfo.textContent = `再生中: ${file.name} (${getFormattedDuration(duration)})`;
+    updatePlayHistory();
+    
+    // Web Audio APIの設定
+    setupAudioContext();
 }
 
+function setupAudioContext() {
+    if (!audioContext) {
+        audioContext = new (window.AudioContext || window.webkitAudioContext)();
+    }
+    
+    // 既存の接続を解除してリセット
+    if (sourceNode) sourceNode.disconnect();
+    eqNodes = [];
+    
+    // MediaElementSourceNodeを作成
+    sourceNode = audioContext.createMediaElementSource(currentPlayer);
+    
+    let previousNode = sourceNode;
+    
+    // イコライザー(BiquadFilterNode)の作成と接続
+    eqBands.forEach(band => {
+        const filter = audioContext.createBiquadFilter();
+        filter.type = 'peaking'; // ピークフィルター
+        filter.frequency.setValueAtTime(band.freq, audioContext.currentTime);
+        filter.Q.setValueAtTime(1.0, audioContext.currentTime); // Q値 (帯域幅)
+        filter.gain.setValueAtTime(parseFloat(band.input.value), audioContext.currentTime); // ゲイン
+        
+        eqNodes.push(filter);
+        
+        // ノードを接続
+        previousNode.connect(filter);
+        previousNode = filter;
+    });
+    
+    // 最後のノードをAudioContextの出力（スピーカー）に接続
+    previousNode.connect(audioContext.destination);
+    
+    // Web Audio APIの接続が完了したら、再生を再開（もし一時停止していたら）
+    if (audioContext.state === 'suspended') {
+        audioContext.resume();
+    }
+    
+    // スライダーの値で初期設定とリスナーの再設定
+    eqBands.forEach(({ freq, input }) => {
+        // スパンに初期値を表示
+        input.nextElementSibling.textContent = parseFloat(input.value).toFixed(1);
+    });
+}
+
+// --- イコライザーとピッチのコントロール ---
+
+eqBands.forEach(({ freq, input }, index) => {
+    input.addEventListener('input', () => {
+        const gainValue = parseFloat(input.value);
+        input.nextElementSibling.textContent = gainValue.toFixed(1);
+        
+        if (eqNodes[index]) {
+            // リアルタイムでゲインを変更
+            eqNodes[index].gain.setValueAtTime(gainValue, audioContext.currentTime);
+        }
+    });
+});
+
+pitchInput.addEventListener('input', () => {
+    const rate = parseFloat(pitchInput.value);
+    pitchValueSpan.textContent = rate.toFixed(2);
+    
+    if (currentPlayer) {
+        // HTMLMediaElementのplaybackRateでピッチ/再生速度を変更
+        currentPlayer.playbackRate = rate;
+    }
+});
+
+// --- 再生ナビゲーション ---
+
 function playNextTrack() {
-  if (!playlist.length) return;
-  const nextIndex = (currentTrackIndex + 1) % playlist.length;
-  playTrack(nextIndex);
+    if (!playlist.length) return;
+    const nextIndex = (currentTrackIndex + 1) % playlist.length;
+    playTrack(nextIndex);
 }
 
 function playPrevTrack() {
-  if (!playlist.length) return;
-  const prevIndex = (currentTrackIndex - 1 + playlist.length) % playlist.length;
-  playTrack(prevIndex);
+    if (!playlist.length) return;
+    const prevIndex = (currentTrackIndex - 1 + playlist.length) % playlist.length;
+    playTrack(prevIndex);
 }
 
 prevButton.addEventListener("click", playPrevTrack);
 nextButton.addEventListener("click", playNextTrack);
 
+// --- プレイリスト表示 ---
+
 function updatePlayHistory() {
-  playHistoryTable.innerHTML = "";
-  playlist.forEach((track, i) => {
-    const row = playHistoryTable.insertRow();
-    if (i === currentTrackIndex) row.classList.add("current");
+    playHistoryTable.innerHTML = "";
+    playlist.forEach((track, i) => {
+        const row = playHistoryTable.insertRow();
+        if (i === currentTrackIndex) row.classList.add("current");
 
-    const thumbCell = row.insertCell();
-    const nameCell = row.insertCell();
-    const durCell = row.insertCell();
+        const thumbCell = row.insertCell();
+        const nameCell = row.insertCell();
+        const durCell = row.insertCell();
 
-    if (track.thumbnail) {
-      const img = document.createElement("img");
-      img.src = track.thumbnail;
-      img.className = "thumb";
-      thumbCell.appendChild(img);
-    } else {
-      thumbCell.textContent = track.isVideo ? "🎬" : "🎵";
-    }
+        if (track.thumbnail) {
+            const img = document.createElement("img");
+            img.src = track.thumbnail;
+            img.className = "thumb";
+            thumbCell.appendChild(img);
+        } else {
+            thumbCell.textContent = track.isVideo ? "🎬" : "🎵";
+        }
 
-    nameCell.textContent = track.file.name;
-    durCell.textContent = getFormattedDuration(track.duration);
+        nameCell.textContent = track.file.name;
+        durCell.textContent = getFormattedDuration(track.duration);
 
-    row.addEventListener("click", () => playTrack(i));
-  });
+        row.addEventListener("click", () => playTrack(i));
+    });
 }
 
 function getFormattedDuration(seconds) {
-  if (!isFinite(seconds)) return "--:--";
-  const m = Math.floor(seconds / 60);
-  const s = Math.floor(seconds % 60);
-  return `${m}:${s < 10 ? "0" : ""}${s}`;
+    if (!isFinite(seconds)) return "--:--";
+    const m = Math.floor(seconds / 60);
+    const s = Math.floor(seconds % 60);
+    return `${m}:${s < 10 ? "0" : ""}${s}`;
 }
-  
+    
+// --- スリープタイマー機能 ---
+
 const sleepTimerButton = document.getElementById("sleepTimerButton");
 const timerOptions = [5, 10, 15, 30, 60, 120, 0]; // 分
 let timerIndex = 0;
@@ -179,51 +331,56 @@ let sleepTimeout = null;
 let fadeOutInterval = null;
 
 sleepTimerButton.addEventListener("click", () => {
-  timerIndex = (timerIndex + 1) % timerOptions.length;
-  const minutes = timerOptions[timerIndex];
-  setSleepTimer(minutes);
+    timerIndex = (timerIndex + 1) % timerOptions.length;
+    const minutes = timerOptions[timerIndex];
+    setSleepTimer(minutes);
 });
 
 function setSleepTimer(minutes) {
-  if (sleepTimeout) {
-    clearTimeout(sleepTimeout);
-    sleepTimeout = null;
-  }
-  if (fadeOutInterval) {
-    clearInterval(fadeOutInterval);
-    fadeOutInterval = null;
-  }
+    if (sleepTimeout) {
+        clearTimeout(sleepTimeout);
+        sleepTimeout = null;
+    }
+    if (fadeOutInterval) {
+        clearInterval(fadeOutInterval);
+        fadeOutInterval = null;
+    }
 
-  if (minutes === 0) {
-    sleepTimerButton.textContent = "タイマー: オフ";
-    return;
-  }
+    if (minutes === 0) {
+        sleepTimerButton.textContent = "タイマー: オフ";
+        return;
+    }
 
-  sleepTimerButton.textContent = `タイマー: ${minutes}分`;
+    sleepTimerButton.textContent = `タイマー: ${minutes}分`;
 
-  sleepTimeout = setTimeout(() => {
-    startFadeOutAndStop();
-  }, minutes * 60 * 1000);
+    sleepTimeout = setTimeout(() => {
+        startFadeOutAndStop();
+    }, minutes * 60 * 1000);
 }
 
 function startFadeOutAndStop() {
-  if (!currentPlayer) return;
+    if (!currentPlayer) return;
 
-  let duration = 30; // 30秒
-  let steps = 30; // 1秒ごとに
-  let stepCount = 0;
-  let initialVolume = currentPlayer.volume;
+    let duration = 30; // 30秒
+    let steps = 30; // 1秒ごとに
+    let stepCount = 0;
+    let initialVolume = currentPlayer.volume;
+    if (initialVolume === 0) initialVolume = 1; // 0の場合は1として扱う
 
-  fadeOutInterval = setInterval(() => {
-    stepCount++;
-    currentPlayer.volume = Math.max(0, initialVolume * (1 - stepCount / steps));
-    if (stepCount >= steps) {
-      clearInterval(fadeOutInterval);
-      currentPlayer.pause();
-      currentPlayer.currentTime = 0;
-      sleepTimerButton.textContent = "タイマー: オフ";
-    }
-  }, duration * 1000 / steps);
+    fadeOutInterval = setInterval(() => {
+        stepCount++;
+        // Web Audio APIを使用しているため、音量制御はAudioContextのゲインノードを使用するのが理想的だが、
+        // 簡略化のためHTMLMediaElementのvolumeを使用。イコライザーが有効でも機能する。
+        currentPlayer.volume = Math.max(0, initialVolume * (1 - stepCount / steps));
+        
+        if (stepCount >= steps) {
+            clearInterval(fadeOutInterval);
+            currentPlayer.pause();
+            currentPlayer.currentTime = 0;
+            currentPlayer.volume = initialVolume; // 次回のために音量を戻す
+            sleepTimerButton.textContent = "タイマー: オフ";
+        }
+    }, duration * 1000 / steps);
 }
 </script>
 
