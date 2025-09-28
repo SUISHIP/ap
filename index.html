@@ -3,50 +3,104 @@
 <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>メディアプレイリスター（音声・動画＋サムネイル＋EQ/ピッチ）</title>
+    <title>フル機能メディアプレイリスター（EQ/リバーブ/ディレイ/パン/コンプ＋アナライザ）</title>
     <style>
+        body {
+            font-family: Arial, sans-serif;
+            margin: 20px;
+        }
         #mediaPlayer {
             width: 100%;
             max-width: 640px;
             display: block;
             margin-bottom: 1em;
         }
-        .thumb {
-            width: 80px;
-            height: 45px;
-            object-fit: cover;
-        }
         .current {
             background-color: #f0f0f0;
         }
-        /* イコライザーとピッチコントロールのスタイル */
         #audioControls {
             margin-top: 20px;
             padding: 10px;
             border: 1px solid #ccc;
             border-radius: 5px;
+            max-width: 640px;
         }
-        .eq-band, #pitchControl {
-            margin-bottom: 10px;
+        .control-group {
+            margin-bottom: 15px;
+            padding: 5px;
+            border-top: 1px solid #eee;
         }
-        .eq-band label, #pitchControl label {
+        .control-group h4 {
+            margin-top: 5px;
+            margin-bottom: 5px;
+        }
+        .control-group label {
             display: inline-block;
-            width: 50px;
+            width: 120px; /* ラベル幅を広げて見やすく */
             text-align: right;
             margin-right: 10px;
             font-size: small;
         }
+        .control-group input[type="range"] {
+            width: calc(100% - 150px);
+            min-width: 150px;
+        }
+        /* アナライザ用のスタイル */
+        #analyzerCanvas {
+            display: block;
+            background: #222;
+            border: 1px solid #ccc;
+            margin-bottom: 15px;
+            width: 100%; 
+            max-width: 640px; 
+            height: auto;
+        }
     </style>
 </head>
 <body>
-    <input type="file" multiple id="fileInput" accept=".mp3,.wav,.ogg,.m4a,.aac,.flac,.wma,.aiff,.mp4,.m4v,.mov,.webm,.avi,.wmv,.mkv,.flv,.3gp"><br>
+    <input type="file" multiple id="fileInput" accept=".mp3,.wav,.ogg,.m4a,.aac,.flac,.aiff"><br>
     
     <div id="playerContainer"></div>
     <p id="songInfo"></p>
+
+    <canvas id="analyzerCanvas" width="640" height="150"></canvas>
     
     <div id="audioControls">
         <h3>オーディオ設定</h3>
-        <div id="equalizer">
+
+        <div id="masterControls" class="control-group">
+            <h4>マスターコントロール</h4>
+            <label for="masterGain">音量 (Gain):</label>
+            <input type="range" id="masterGain" min="0" max="2" value="1" step="0.01">
+            <span id="masterGainValue">1.00</span> (x倍)<br>
+
+            <label for="playbackRate">再生速度:</label>
+            <input type="range" id="playbackRate" min="0.5" max="2.0" value="1.0" step="0.01">
+            <span id="playbackRateValue">1.00</span> (x倍速)<br>
+
+            <label for="panner">定位 (Pan):</label>
+            <input type="range" id="panner" min="-1" max="1" value="0" step="0.01">
+            <span id="pannerValue">0.00</span> (左-1.0〜右1.0)
+        </div>
+
+        <div id="compressorControl" class="control-group">
+            <h4>コンプレッサー (音圧調整)</h4>
+            <label for="compThreshold">Threshold (dB):</label>
+            <input type="range" id="compThreshold" min="-60" max="0" value="-24" step="0.1">
+            <span id="compThresholdValue">-24.0</span><br>
+            <label for="compRatio">Ratio:</label>
+            <input type="range" id="compRatio" min="1" max="20" value="4" step="0.1">
+            <span id="compRatioValue">4.0</span>
+        </div>
+
+        <div id="distortionControl" class="control-group">
+            <h4>ディストーション (歪み)</h4>
+            <label for="distortionAmount">歪み量:</label>
+            <input type="range" id="distortionAmount" min="0" max="100" value="0" step="1">
+            <span id="distortionAmountValue">0</span> (%)
+        </div>
+
+        <div id="equalizer" class="control-group">
             <h4>イコライザー (dB)</h4>
             <div class="eq-band"><label for="eq60">60Hz:</label><input type="range" id="eq60" min="-12" max="12" value="0" step="0.1"><span class="gain-value">0.0</span></div>
             <div class="eq-band"><label for="eq250">250Hz:</label><input type="range" id="eq250" min="-12" max="12" value="0" step="0.1"><span class="gain-value">0.0</span></div>
@@ -55,12 +109,37 @@
             <div class="eq-band"><label for="eq16k">16kHz:</label><input type="range" id="eq16k" min="-12" max="12" value="0" step="0.1"><span class="gain-value">0.0</span></div>
         </div>
         
-        <div id="pitchControl">
-            <h4>ピッチ/再生速度</h4>
-            <label for="pitch">速度:</label>
-            <input type="range" id="pitch" min="0.5" max="2.0" value="1.0" step="0.01">
-            <span id="pitchValue">1.00</span> (x倍速)
+        <div id="reverbControl" class="control-group">
+            <h4>リバーブ（残響）</h4>
+            <label for="reverbPreset">プリセット:</label>
+            <select id="reverbPreset">
+                <option value="0">オフ</option>
+                <option value="0.3" selected>小部屋</option>
+                <option value="0.6">中規模ホール</option>
+                <option value="0.9">大聖堂</option>
+                <option value="1.2">超特大</option>
+            </select><br>
+            
+            <label for="reverbMix">残響の深さ:</label>
+            <input type="range" id="reverbMix" min="0" max="1.5" value="0.3" step="0.01">
+            <span id="reverbMixValue">0.30</span>
         </div>
+
+        <div id="delayControl" class="control-group">
+            <h4>ディレイ（エコー）</h4>
+            <label for="delayTime">Delay Time (秒):</label>
+            <input type="range" id="delayTime" min="0" max="1" value="0" step="0.01">
+            <span id="delayTimeValue">0.00</span><br>
+
+            <label for="delayFeedback">Feedback:</label>
+            <input type="range" id="delayFeedback" min="0" max="0.95" value="0" step="0.01">
+            <span id="delayFeedbackValue">0.00</span><br>
+
+            <label for="delayMix">Mix (ウェット):</label>
+            <input type="range" id="delayMix" min="0" max="1" value="0" step="0.01">
+            <span id="delayMixValue">0.00</span>
+        </div>
+
     </div>
     
     <br>
@@ -68,7 +147,7 @@
     <table>
         <thead>
             <tr>
-                <th>サムネイル</th>
+                <th>🎵</th>
                 <th>メディア名</th>
                 <th>長さ</th>
             </tr>
@@ -81,6 +160,10 @@
     <button id="sleepTimerButton">タイマー: オフ</button>
 
 <script>
+// ====================================================================
+// DOM要素の取得と定数
+// ====================================================================
+
 const fileInput = document.getElementById("fileInput");
 const playerContainer = document.getElementById("playerContainer");
 const songInfo = document.getElementById("songInfo");
@@ -88,7 +171,15 @@ const playHistoryTable = document.getElementById("playHistoryTable");
 const prevButton = document.getElementById("prevButton");
 const nextButton = document.getElementById("nextButton");
 
-// イコライザーとピッチ関連の要素
+// コントロール
+const playbackRateInput = document.getElementById('playbackRate');
+const playbackRateValueSpan = document.getElementById('playbackRateValue');
+const masterGainInput = document.getElementById('masterGain');
+const masterGainValueSpan = document.getElementById('masterGainValue');
+const pannerInput = document.getElementById('panner');
+const pannerValueSpan = document.getElementById('pannerValue');
+
+// EQ
 const eqBands = [
     { freq: 60, input: document.getElementById('eq60') },
     { freq: 250, input: document.getElementById('eq250') },
@@ -96,17 +187,450 @@ const eqBands = [
     { freq: 4000, input: document.getElementById('eq4k') },
     { freq: 16000, input: document.getElementById('eq16k') }
 ];
-const pitchInput = document.getElementById('pitch');
-const pitchValueSpan = document.getElementById('pitchValue');
 
-let playlist = []; // {file, url, duration, isVideo, thumbnail}
+// Reverb
+const reverbPreset = document.getElementById('reverbPreset');
+const reverbMixInput = document.getElementById('reverbMix');
+const reverbMixValueSpan = document.getElementById('reverbMixValue');
+
+// Delay
+const delayTimeInput = document.getElementById('delayTime');
+const delayTimeValueSpan = document.getElementById('delayTimeValue');
+const delayFeedbackInput = document.getElementById('delayFeedback');
+const delayFeedbackValueSpan = document.getElementById('delayFeedbackValue');
+const delayMixInput = document.getElementById('delayMix');
+const delayMixValueSpan = document.getElementById('delayMixValue');
+
+// Distortion
+const distortionAmountInput = document.getElementById('distortionAmount');
+const distortionAmountValueSpan = document.getElementById('distortionAmountValue');
+
+// Compressor
+const compThresholdInput = document.getElementById('compThreshold');
+const compThresholdValueSpan = document.getElementById('compThresholdValue');
+const compRatioInput = document.getElementById('compRatio');
+const compRatioValueSpan = document.getElementById('compRatioValue');
+
+// アナライザ
+const canvas = document.getElementById('analyzerCanvas');
+const canvasCtx = canvas.getContext('2d');
+
+
+let playlist = []; 
 let currentTrackIndex = 0;
 let currentPlayer = null;
 
-// Web Audio APIのコンテキスト
 let audioContext = null;
 let sourceNode = null;
+
+// エフェクトノード群
+let masterGainNode = null; 
+let stereoPannerNode = null;
+let dynamicsCompressorNode = null;
+
+let distortionNode = null;
 let eqNodes = [];
+
+let reverbBuffer = null;
+let convolverNode = null;  
+let reverbDryGainNode = null;    
+let reverbWetGainNode = null;    
+
+let delayNode = null;
+let delayFeedbackGain = null;
+let delayDryGainNode = null;
+let delayWetGainNode = null;
+
+
+// ====================================================================
+// Web Audio API ノードの初期化とグラフ接続
+// ====================================================================
+
+// ディストーション用のカーブ生成関数
+function makeDistortionCurve(amount) {
+    const k = amount * 10;
+    const n_samples = 44100;
+    const curve = new Float32Array(n_samples);
+    const deg = Math.PI / 180;
+    
+    for (let i = 0; i < n_samples; ++i) {
+        const x = i * 2 / n_samples - 1;
+        curve[i] = (3 + k) * x * 20 * deg / (Math.PI + k * Math.abs(x));
+    }
+    return curve;
+}
+
+// リバーブ用のインパルス応答生成関数 (シンプル版)
+function createReverbBuffer(context) {
+    const duration = 0.5; 
+    const sampleRate = context.sampleRate;
+    const length = sampleRate * duration;
+    const buffer = context.createBuffer(2, length, sampleRate);
+
+    for (let channel = 0; channel < buffer.numberOfChannels; channel++) {
+        const data = buffer.getChannelData(channel);
+        for (let i = 0; i < length; i++) {
+            // フェードアウトするランダムノイズ
+            data[i] = (Math.random() * 2 - 1) * Math.pow(1 - i / length, 3);
+        }
+    }
+    return buffer;
+}
+
+
+function setupAudioContext() {
+    if (!audioContext || !currentPlayer || !currentPlayer.src) return; 
+
+    // 既存の接続をすべて解除
+    if (sourceNode) sourceNode.disconnect();
+    eqNodes.forEach(node => node.disconnect());
+    
+    // --- ノードの作成と初期化 ---
+    
+    if (!masterGainNode) masterGainNode = audioContext.createGain();
+    if (!stereoPannerNode) stereoPannerNode = audioContext.createStereoPanner();
+    if (!dynamicsCompressorNode) dynamicsCompressorNode = audioContext.createDynamicsCompressor();
+    if (!distortionNode) distortionNode = audioContext.createWaveShaper();
+
+    // リバーブノード
+    if (!convolverNode) {
+        convolverNode = audioContext.createConvolver();
+        reverbBuffer = createReverbBuffer(audioContext);
+        convolverNode.buffer = reverbBuffer;
+    }
+    if (!reverbDryGainNode) reverbDryGainNode = audioContext.createGain();
+    if (!reverbWetGainNode) reverbWetGainNode = audioContext.createGain();
+    
+    // ディレイノード (フィードバックループとドライ/ウェット構成)
+    if (!delayNode) delayNode = audioContext.createDelay(1.0); // 最大1秒ディレイ
+    if (!delayFeedbackGain) delayFeedbackGain = audioContext.createGain();
+    if (!delayDryGainNode) delayDryGainNode = audioContext.createGain();
+    if (!delayWetGainNode) delayWetGainNode = audioContext.createGain();
+
+    // AnalyserNode
+    if (!analyzerNode) {
+        analyzerNode = audioContext.createAnalyser();
+        analyzerNode.fftSize = 2048; 
+        const bufferLength = analyzerNode.frequencyBinCount;
+        analyzerNode.dataArray = new Uint8Array(bufferLength);
+    }
+    
+    sourceNode = audioContext.createMediaElementSource(currentPlayer);
+    
+    // --- 信号フローの接続 ---
+    
+    // 1. ソース -> マスターゲイン
+    sourceNode.connect(masterGainNode);
+    let previousNode = masterGainNode;
+
+    // 2. マスターゲイン -> ディストーション
+    previousNode.connect(distortionNode);
+    previousNode = distortionNode;
+
+    // 3. ディストーション -> EQ群
+    eqNodes = [];
+    let eqInputNode = previousNode; 
+    eqBands.forEach(band => {
+        const filter = audioContext.createBiquadFilter();
+        filter.type = 'peaking'; 
+        filter.frequency.setValueAtTime(band.freq, audioContext.currentTime);
+        filter.Q.setValueAtTime(1.0, audioContext.currentTime); 
+        eqNodes.push(filter);
+        eqInputNode.connect(filter);
+        eqInputNode = filter;
+    });
+    previousNode = eqInputNode; // EQの最後のノード
+
+    // 4. EQの出力から3つに分岐 (ドライ音、リバーブ、ディレイ)
+
+    // a) リバーブ (パラレル接続)
+    previousNode.connect(convolverNode);
+    convolverNode.connect(reverbWetGainNode);
+
+    // b) ディレイ (パラレル接続 & フィードバックループ)
+    previousNode.connect(delayDryGainNode); // ディレイのドライ音
+    previousNode.connect(delayNode);       // ディレイのインプット
+    
+    // フィードバックループ: Delay -> FeedbackGain -> Delay
+    delayNode.connect(delayFeedbackGain);
+    delayFeedbackGain.connect(delayNode);
+    
+    // ディレイの出力 (ウェット音)
+    delayNode.connect(delayWetGainNode);
+
+    // c) ドライ音 (EQ後のクリーンな音)
+    // 実際には、EQの出力はディレイのドライ音（`delayDryGainNode`）にも接続されている
+
+    // 5. すべてのウェット/ドライ音を合流させるためのノードを作成 (ここではアナライザの前に接続)
+    // 以下のノードの出力をアナライザの入力に接続し、アナライザの出力をコンプレッサーへ
+    
+    // *すべての音*をアナライザに接続
+    // 1. EQ後のドライ音
+    previousNode.connect(analyzerNode); 
+    // 2. リバーブのウェット音
+    reverbWetGainNode.connect(analyzerNode); 
+    // 3. ディレイのドライ音
+    delayDryGainNode.connect(analyzerNode);
+    // 4. ディレイのウェット音
+    delayWetGainNode.connect(analyzerNode);
+
+    // 6. アナライザ -> コンプレッサー -> パンナー -> 最終出力
+    analyzerNode.connect(dynamicsCompressorNode);
+    dynamicsCompressorNode.connect(stereoPannerNode);
+    stereoPannerNode.connect(audioContext.destination);
+    
+    // --- 初期値の適用 ---
+    
+    // コントロールの初期値を設定
+    updateDistortionCurve(parseFloat(distortionAmountInput.value));
+    updateReverbMix(parseFloat(reverbMixInput.value));
+    updateDelayControls();
+    updateCompressorControls();
+    updatePanner();
+
+    masterGainNode.gain.setValueAtTime(parseFloat(masterGainInput.value), audioContext.currentTime);
+    
+    // EQの初期値を設定
+    eqBands.forEach(({ input }, index) => {
+        eqNodes[index].gain.setValueAtTime(parseFloat(input.value), audioContext.currentTime);
+    });
+
+    // アナライザの描画を開始
+    drawAnalyzer();
+
+    // コントロールの表示を更新
+    masterGainValueSpan.textContent = parseFloat(masterGainInput.value).toFixed(2);
+    playbackRateValueSpan.textContent = parseFloat(playbackRateInput.value).toFixed(2);
+    pannerValueSpan.textContent = parseFloat(pannerInput.value).toFixed(2);
+    reverbMixValueSpan.textContent = parseFloat(reverbMixInput.value).toFixed(2);
+    delayTimeValueSpan.textContent = parseFloat(delayTimeInput.value).toFixed(2);
+    delayFeedbackValueSpan.textContent = parseFloat(delayFeedbackInput.value).toFixed(2);
+    delayMixValueSpan.textContent = parseFloat(delayMixInput.value).toFixed(2);
+    distortionAmountValueSpan.textContent = parseFloat(distortionAmountInput.value);
+    compThresholdValueSpan.textContent = parseFloat(compThresholdInput.value).toFixed(1);
+    compRatioValueSpan.textContent = parseFloat(compRatioInput.value).toFixed(1);
+    eqBands.forEach(({ input }) => {
+        input.nextElementSibling.textContent = parseFloat(input.value).toFixed(1);
+    });
+}
+
+
+// ====================================================================
+// エフェクトコントロールの更新関数
+// ====================================================================
+
+function updateDistortionCurve(amount) {
+    if (distortionNode) {
+        if (amount > 0) {
+            distortionNode.curve = makeDistortionCurve(amount);
+            distortionNode.oversample = '4x'; // 高品質なオーバードライブ
+        } else {
+            distortionNode.curve = null; // 歪みをオフ
+        }
+    }
+}
+
+function updateReverbMix(mixValue) {
+    if (!reverbWetGainNode || !reverbDryGainNode || !audioContext) {
+        return;
+    }
+    
+    const rampTime = 0.1; 
+    // ドライ音のゲインは常に1.0 (リバーブのウェット音との混合のみ制御)
+    // リバーブノードにはドライ音（EQ後）が常に入力されているため、リバーブのドライ音のゲインは制御しません
+    reverbWetGainNode.gain.linearRampToValueAtTime(mixValue, audioContext.currentTime + rampTime);
+}
+
+function updateDelayControls() {
+    if (!delayNode || !delayFeedbackGain || !delayWetGainNode || !delayDryGainNode || !audioContext) {
+        return;
+    }
+    const time = parseFloat(delayTimeInput.value);
+    const feedback = parseFloat(delayFeedbackInput.value);
+    const mix = parseFloat(delayMixInput.value);
+    const rampTime = 0.1; 
+
+    delayNode.delayTime.linearRampToValueAtTime(time, audioContext.currentTime + rampTime);
+    delayFeedbackGain.gain.linearRampToValueAtTime(feedback, audioContext.currentTime + rampTime);
+    
+    // ディレイのウェット音（エコー）の量
+    delayWetGainNode.gain.linearRampToValueAtTime(mix, audioContext.currentTime + rampTime);
+    // ディレイのドライ音（原音）の量は、EQ後の信号が担うため、ディレイのDryGainは基本的に無効化 (0)するか、すべてのアウトプットを最終段でミックスする必要があります。
+    // 今回は、EQ後の音（previousNode）とDelayNodeの出力をAnalyzerに集約するため、DryGainはミックス用として機能させます。
+    
+    // 原音とディレイ音を1:1でミックスする場合、Dry/Wet両方の出力を次のノードに渡します。
+    // ここではドライ音はEQの出力から直接流れているため、DelayDryGainNodeは基本的に使わず、Dry音はEQから直接Analyzerへ、Wet音はDelayWetGainNodeを経由してAnalyzerへ接続しています。
+    // グラフ構成を簡素化するため、DelayDryGainNodeは常に1に設定します。（ただし、ここではEQからの直接接続があるため、ノードは接続されていませんが、念のため値を設定）
+    delayDryGainNode.gain.linearRampToValueAtTime(1.0 - mix, audioContext.currentTime + rampTime);
+}
+
+function updateCompressorControls() {
+    if (!dynamicsCompressorNode || !audioContext) return;
+    
+    const threshold = parseFloat(compThresholdInput.value);
+    const ratio = parseFloat(compRatioInput.value);
+
+    dynamicsCompressorNode.threshold.setValueAtTime(threshold, audioContext.currentTime);
+    dynamicsCompressorNode.ratio.setValueAtTime(ratio, audioContext.currentTime);
+}
+
+function updatePanner() {
+    if (!stereoPannerNode || !audioContext) return;
+    
+    const pan = parseFloat(pannerInput.value);
+    stereoPannerNode.pan.setValueAtTime(pan, audioContext.currentTime);
+}
+
+// ====================================================================
+// コントロールイベントハンドラ
+// ====================================================================
+
+masterGainInput.addEventListener('input', () => {
+    const gainValue = parseFloat(masterGainInput.value);
+    masterGainValueSpan.textContent = gainValue.toFixed(2);
+    if (masterGainNode && audioContext) {
+        masterGainNode.gain.setValueAtTime(gainValue, audioContext.currentTime);
+    }
+});
+
+playbackRateInput.addEventListener('input', () => {
+    const rate = parseFloat(playbackRateInput.value);
+    playbackRateValueSpan.textContent = rate.toFixed(2);
+    if (currentPlayer) {
+        currentPlayer.playbackRate = rate;
+    }
+});
+
+pannerInput.addEventListener('input', () => {
+    const pan = parseFloat(pannerInput.value);
+    pannerValueSpan.textContent = pan.toFixed(2);
+    updatePanner();
+});
+
+distortionAmountInput.addEventListener('input', () => {
+    const amount = parseInt(distortionAmountInput.value);
+    distortionAmountValueSpan.textContent = amount;
+    updateDistortionCurve(amount);
+});
+
+compThresholdInput.addEventListener('input', () => {
+    const value = parseFloat(compThresholdInput.value);
+    compThresholdValueSpan.textContent = value.toFixed(1);
+    updateCompressorControls();
+});
+
+compRatioInput.addEventListener('input', () => {
+    const value = parseFloat(compRatioInput.value);
+    compRatioValueSpan.textContent = value.toFixed(1);
+    updateCompressorControls();
+});
+
+
+eqBands.forEach(({ freq, input }, index) => {
+    input.addEventListener('input', () => {
+        const gainValue = parseFloat(input.value);
+        input.nextElementSibling.textContent = gainValue.toFixed(1);
+        if (eqNodes[index] && audioContext) {
+            eqNodes[index].gain.setValueAtTime(gainValue, audioContext.currentTime);
+        }
+    });
+});
+
+reverbMixInput.addEventListener('input', () => {
+    const mixValue = parseFloat(reverbMixInput.value);
+    reverbMixValueSpan.textContent = mixValue.toFixed(2);
+    updateReverbMix(mixValue);
+});
+
+reverbPreset.addEventListener('change', () => {
+    const presetValue = parseFloat(reverbPreset.value);
+    reverbMixInput.value = presetValue;
+    reverbMixValueSpan.textContent = presetValue.toFixed(2);
+    updateReverbMix(presetValue);
+});
+
+delayTimeInput.addEventListener('input', () => {
+    const time = parseFloat(delayTimeInput.value);
+    delayTimeValueSpan.textContent = time.toFixed(2);
+    updateDelayControls();
+});
+delayFeedbackInput.addEventListener('input', () => {
+    const feedback = parseFloat(delayFeedbackInput.value);
+    delayFeedbackValueSpan.textContent = feedback.toFixed(2);
+    updateDelayControls();
+});
+delayMixInput.addEventListener('input', () => {
+    const mix = parseFloat(delayMixInput.value);
+    delayMixValueSpan.textContent = mix.toFixed(2);
+    updateDelayControls();
+});
+
+
+// ====================================================================
+// アナライザ描画ロジック
+// ====================================================================
+
+function drawAnalyzer() {
+    requestAnimationFrame(drawAnalyzer);
+
+    if (!analyzerNode || audioContext.state !== 'running') {
+        canvasCtx.clearRect(0, 0, canvas.width, canvas.height);
+        return;
+    }
+
+    const WIDTH = canvas.clientWidth;
+    const HEIGHT = canvas.clientHeight;
+    
+    canvas.width = WIDTH;
+    canvas.height = HEIGHT;
+
+    analyzerNode.getByteFrequencyData(analyzerNode.dataArray); 
+
+    canvasCtx.fillStyle = 'rgb(34, 34, 34)'; 
+    canvasCtx.fillRect(0, 0, WIDTH, HEIGHT);
+
+    const bufferLength = analyzerNode.frequencyBinCount;
+    const barWidth = (WIDTH / bufferLength) * 2.5; 
+    let barHeight;
+    let x = 0;
+
+    for(let i = 0; i < bufferLength; i++) {
+        barHeight = analyzerNode.dataArray[i] / 255 * HEIGHT; 
+
+        const hue = i / bufferLength * 360 * 2;
+        canvasCtx.fillStyle = 'hsl(' + hue + ', 100%, 50%)';
+        
+        canvasCtx.fillRect(x, HEIGHT - barHeight, barWidth, barHeight);
+
+        x += barWidth + 1;
+    }
+}
+
+
+// ====================================================================
+// メディア再生ロジック (変更なし)
+// ====================================================================
+
+function playMediaAutomatically() {
+    if (!currentPlayer) return;
+
+    if (!audioContext) {
+        audioContext = new (window.AudioContext || window.webkitAudioContext)();
+        reverbBuffer = createReverbBuffer(audioContext);
+        setupAudioContext(); 
+    }
+
+    if (audioContext.state === 'suspended') {
+        audioContext.resume().then(() => {
+            currentPlayer.play().catch(e => console.error("Auto play failed after context resume:", e));
+        }).catch(e => {
+            console.warn("AudioContext resume failed. Waiting for user interaction to start sound.", e);
+        });
+    } else {
+        currentPlayer.play().catch(e => console.error("Auto play failed:", e));
+    }
+}
+
 
 // --- ファイル操作とプレイリスト ---
 
@@ -118,23 +642,15 @@ fileInput.addEventListener("change", () => {
 
 function addToPlaylist(file) {
     const url = URL.createObjectURL(file);
-    const isVideo = file.type.startsWith("video/");
-    const tempEl = document.createElement(isVideo ? "video" : "audio");
+    const tempEl = document.createElement("audio");
     tempEl.preload = "metadata";
     tempEl.src = url;
 
     tempEl.addEventListener("loadedmetadata", async () => {
         const duration = tempEl.duration;
-        let thumbnail = null;
-
-        if (isVideo) {
-            thumbnail = await generateThumbnail(url);
-        }
-
-        playlist.push({ file, url, duration, isVideo, thumbnail });
+        playlist.push({ file, url, duration, isVideo: false, thumbnail: null });
 
         if (playlist.length === 1 && !currentPlayer) {
-            // 初回再生時に、再生を開始する
             playTrack(0);
         } else {
             updatePlayHistory();
@@ -144,133 +660,39 @@ function addToPlaylist(file) {
     });
 }
 
-function generateThumbnail(videoUrl) {
-    return new Promise((resolve) => {
-        const video = document.createElement("video");
-        video.src = videoUrl;
-        video.crossOrigin = "anonymous";
-        video.muted = true;
-        video.currentTime = 0.1;
-
-        video.addEventListener("loadeddata", () => {
-            const canvas = document.createElement("canvas");
-            canvas.width = 160;
-            canvas.height = 90;
-            const ctx = canvas.getContext("2d");
-            ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
-            resolve(canvas.toDataURL("image/png"));
-        });
-
-        video.addEventListener("error", () => {
-            resolve(null); // fallback
-        });
-    });
-}
-
-// --- メディア再生とWeb Audio API接続 ---
-
 function playTrack(index) {
     if (!playlist[index]) return;
-    const { file, url, duration, isVideo } = playlist[index];
+    const { file, url, duration } = playlist[index];
     currentTrackIndex = index;
 
     if (currentPlayer) {
         currentPlayer.pause();
         currentPlayer.remove();
-        // 古いオーディオ接続を解除
         if (sourceNode) sourceNode.disconnect();
     }
 
-    currentPlayer = document.createElement(isVideo ? "video" : "audio");
+    currentPlayer = document.createElement("audio");
     currentPlayer.id = "mediaPlayer";
-    currentPlayer.controls = true;
-    currentPlayer.autoplay = true;
-    currentPlayer.src = url;
-    if (isVideo) currentPlayer.width = 640;
+    currentPlayer.controls = true; 
+    currentPlayer.src = url; 
     currentPlayer.addEventListener("ended", playNextTrack);
     
-    // ピッチ変更はHTMLMediaElementのplaybackRateで直接制御するため、初期値を設定
-    currentPlayer.playbackRate = parseFloat(pitchInput.value);
+    currentPlayer.playbackRate = parseFloat(playbackRateInput.value); 
 
     playerContainer.innerHTML = "";
     playerContainer.appendChild(currentPlayer);
 
     songInfo.textContent = `再生中: ${file.name} (${getFormattedDuration(duration)})`;
     updatePlayHistory();
-    
-    // Web Audio APIの設定
-    setupAudioContext();
+
+    currentPlayer.addEventListener('canplay', () => {
+        setupAudioContext();
+        playMediaAutomatically();
+    }, { once: true });
 }
 
-function setupAudioContext() {
-    if (!audioContext) {
-        audioContext = new (window.AudioContext || window.webkitAudioContext)();
-    }
-    
-    // 既存の接続を解除してリセット
-    if (sourceNode) sourceNode.disconnect();
-    eqNodes = [];
-    
-    // MediaElementSourceNodeを作成
-    sourceNode = audioContext.createMediaElementSource(currentPlayer);
-    
-    let previousNode = sourceNode;
-    
-    // イコライザー(BiquadFilterNode)の作成と接続
-    eqBands.forEach(band => {
-        const filter = audioContext.createBiquadFilter();
-        filter.type = 'peaking'; // ピークフィルター
-        filter.frequency.setValueAtTime(band.freq, audioContext.currentTime);
-        filter.Q.setValueAtTime(1.0, audioContext.currentTime); // Q値 (帯域幅)
-        filter.gain.setValueAtTime(parseFloat(band.input.value), audioContext.currentTime); // ゲイン
-        
-        eqNodes.push(filter);
-        
-        // ノードを接続
-        previousNode.connect(filter);
-        previousNode = filter;
-    });
-    
-    // 最後のノードをAudioContextの出力（スピーカー）に接続
-    previousNode.connect(audioContext.destination);
-    
-    // Web Audio APIの接続が完了したら、再生を再開（もし一時停止していたら）
-    if (audioContext.state === 'suspended') {
-        audioContext.resume();
-    }
-    
-    // スライダーの値で初期設定とリスナーの再設定
-    eqBands.forEach(({ freq, input }) => {
-        // スパンに初期値を表示
-        input.nextElementSibling.textContent = parseFloat(input.value).toFixed(1);
-    });
-}
 
-// --- イコライザーとピッチのコントロール ---
-
-eqBands.forEach(({ freq, input }, index) => {
-    input.addEventListener('input', () => {
-        const gainValue = parseFloat(input.value);
-        input.nextElementSibling.textContent = gainValue.toFixed(1);
-        
-        if (eqNodes[index]) {
-            // リアルタイムでゲインを変更
-            eqNodes[index].gain.setValueAtTime(gainValue, audioContext.currentTime);
-        }
-    });
-});
-
-pitchInput.addEventListener('input', () => {
-    const rate = parseFloat(pitchInput.value);
-    pitchValueSpan.textContent = rate.toFixed(2);
-    
-    if (currentPlayer) {
-        // HTMLMediaElementのplaybackRateでピッチ/再生速度を変更
-        currentPlayer.playbackRate = rate;
-    }
-});
-
-// --- 再生ナビゲーション ---
+// --- その他の機能 (変更なし) ---
 
 function playNextTrack() {
     if (!playlist.length) return;
@@ -287,8 +709,6 @@ function playPrevTrack() {
 prevButton.addEventListener("click", playPrevTrack);
 nextButton.addEventListener("click", playNextTrack);
 
-// --- プレイリスト表示 ---
-
 function updatePlayHistory() {
     playHistoryTable.innerHTML = "";
     playlist.forEach((track, i) => {
@@ -299,14 +719,7 @@ function updatePlayHistory() {
         const nameCell = row.insertCell();
         const durCell = row.insertCell();
 
-        if (track.thumbnail) {
-            const img = document.createElement("img");
-            img.src = track.thumbnail;
-            img.className = "thumb";
-            thumbCell.appendChild(img);
-        } else {
-            thumbCell.textContent = track.isVideo ? "🎬" : "🎵";
-        }
+        thumbCell.textContent = "🎵";
 
         nameCell.textContent = track.file.name;
         durCell.textContent = getFormattedDuration(track.duration);
@@ -322,10 +735,8 @@ function getFormattedDuration(seconds) {
     return `${m}:${s < 10 ? "0" : ""}${s}`;
 }
     
-// --- スリープタイマー機能 ---
-
 const sleepTimerButton = document.getElementById("sleepTimerButton");
-const timerOptions = [5, 10, 15, 30, 60, 120, 0]; // 分
+const timerOptions = [5, 10, 15, 30, 60, 120, 0];
 let timerIndex = 0;
 let sleepTimeout = null;
 let fadeOutInterval = null;
@@ -361,28 +772,35 @@ function setSleepTimer(minutes) {
 function startFadeOutAndStop() {
     if (!currentPlayer) return;
 
-    let duration = 30; // 30秒
-    let steps = 30; // 1秒ごとに
+    let duration = 30;
+    let steps = 30;
     let stepCount = 0;
-    let initialVolume = currentPlayer.volume;
-    if (initialVolume === 0) initialVolume = 1; // 0の場合は1として扱う
+    
+    let initialVolume = masterGainNode ? masterGainNode.gain.value : currentPlayer.volume;
 
     fadeOutInterval = setInterval(() => {
         stepCount++;
-        // Web Audio APIを使用しているため、音量制御はAudioContextのゲインノードを使用するのが理想的だが、
-        // 簡略化のためHTMLMediaElementのvolumeを使用。イコライザーが有効でも機能する。
-        currentPlayer.volume = Math.max(0, initialVolume * (1 - stepCount / steps));
-        
+        const currentGain = Math.max(0, initialVolume * (1 - stepCount / steps));
+
+        if (masterGainNode && audioContext) {
+            masterGainNode.gain.setValueAtTime(currentGain, audioContext.currentTime);
+        } else {
+            currentPlayer.volume = currentGain;
+        }
+
         if (stepCount >= steps) {
             clearInterval(fadeOutInterval);
             currentPlayer.pause();
             currentPlayer.currentTime = 0;
-            currentPlayer.volume = initialVolume; // 次回のために音量を戻す
             sleepTimerButton.textContent = "タイマー: オフ";
+            
+            if (masterGainNode && audioContext) {
+                // ボリュームを元の設定値に戻す
+                masterGainNode.gain.setValueAtTime(parseFloat(masterGainInput.value), audioContext.currentTime);
+            }
         }
     }, duration * 1000 / steps);
 }
 </script>
-
 </body>
 </html>
