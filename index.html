@@ -223,7 +223,7 @@ let currentPlayer = null;
 let audioContext = null;
 let sourceNode = null;
 
-// エフェクトノード群
+// --- エフェクトノード群（宣言をここでまとめて行う） ---
 let masterGainNode = null; 
 let stereoPannerNode = null;
 let dynamicsCompressorNode = null;
@@ -241,6 +241,8 @@ let delayFeedbackGain = null;
 let delayDryGainNode = null;
 let delayWetGainNode = null;
 
+// ここが問題だった：analyzerNode を宣言していなかったため ReferenceError が出ていた
+let analyzerNode = null;
 
 // ====================================================================
 // Web Audio API ノードの初期化とグラフ接続
@@ -261,8 +263,7 @@ function makeDistortionCurve(amount) {
 }
 
 // リバーブ用のインパルス応答生成関数 (シンプル版)
-function createReverbBuffer(context) {
-    const duration = 0.5; 
+function createReverbBuffer(context, duration = 0.5) {
     const sampleRate = context.sampleRate;
     const length = sampleRate * duration;
     const buffer = context.createBuffer(2, length, sampleRate);
@@ -270,7 +271,6 @@ function createReverbBuffer(context) {
     for (let channel = 0; channel < buffer.numberOfChannels; channel++) {
         const data = buffer.getChannelData(channel);
         for (let i = 0; i < length; i++) {
-            // フェードアウトするランダムノイズ
             data[i] = (Math.random() * 2 - 1) * Math.pow(1 - i / length, 3);
         }
     }
@@ -282,8 +282,12 @@ function setupAudioContext() {
     if (!audioContext || !currentPlayer || !currentPlayer.src) return; 
 
     // 既存の接続をすべて解除
-    if (sourceNode) sourceNode.disconnect();
-    eqNodes.forEach(node => node.disconnect());
+    try {
+        if (sourceNode) sourceNode.disconnect();
+    } catch (e) { /* ignore */ }
+    eqNodes.forEach(node => {
+        try { node.disconnect(); } catch (e) {}
+    });
     
     // --- ノードの作成と初期化 ---
     
@@ -315,12 +319,18 @@ function setupAudioContext() {
         analyzerNode.dataArray = new Uint8Array(bufferLength);
     }
     
-    sourceNode = audioContext.createMediaElementSource(currentPlayer);
+    // ソース（MediaElementSource）
+    try {
+        sourceNode = audioContext.createMediaElementSource(currentPlayer);
+    } catch (e) {
+        // 既に currentPlayer に対して source 作成済みのケースなどの安全対策
+        console.warn("createMediaElementSource error:", e);
+    }
     
     // --- 信号フローの接続 ---
     
     // 1. ソース -> マスターゲイン
-    sourceNode.connect(masterGainNode);
+    if (sourceNode) sourceNode.connect(masterGainNode);
     let previousNode = masterGainNode;
 
     // 2. マスターゲイン -> ディストーション
@@ -335,6 +345,7 @@ function setupAudioContext() {
         filter.type = 'peaking'; 
         filter.frequency.setValueAtTime(band.freq, audioContext.currentTime);
         filter.Q.setValueAtTime(1.0, audioContext.currentTime); 
+        filter.gain.setValueAtTime(parseFloat(band.input.value || 0), audioContext.currentTime);
         eqNodes.push(filter);
         eqInputNode.connect(filter);
         eqInputNode = filter;
@@ -346,6 +357,8 @@ function setupAudioContext() {
     // a) リバーブ (パラレル接続)
     previousNode.connect(convolverNode);
     convolverNode.connect(reverbWetGainNode);
+    // --- 重要: リバーブのドライ経路も明確に作る（元音を別ゲインで保持） ---
+    previousNode.connect(reverbDryGainNode);
 
     // b) ディレイ (パラレル接続 & フィードバックループ)
     previousNode.connect(delayDryGainNode); // ディレイのドライ音
@@ -359,14 +372,12 @@ function setupAudioContext() {
     delayNode.connect(delayWetGainNode);
 
     // c) ドライ音 (EQ後のクリーンな音)
-    // 実際には、EQの出力はディレイのドライ音（`delayDryGainNode`）にも接続されている
+    // (EQ出力は直接 reverbDryGainNode / delayDryGainNode などに繋がれている構成)
 
     // 5. すべてのウェット/ドライ音を合流させるためのノードを作成 (ここではアナライザの前に接続)
-    // 以下のノードの出力をアナライザの入力に接続し、アナライザの出力をコンプレッサーへ
-    
-    // *すべての音*をアナライザに接続
-    // 1. EQ後のドライ音
-    previousNode.connect(analyzerNode); 
+    // 各ウェット/ドライをアナライザへ接続
+    // 1. EQ後のドライ音 (reverbDryGainNode か直接 previousNode のどちらか) -> ここでは reverbDryGainNode を使う
+    reverbDryGainNode.connect(analyzerNode); 
     // 2. リバーブのウェット音
     reverbWetGainNode.connect(analyzerNode); 
     // 3. ディレイのドライ音
@@ -381,7 +392,6 @@ function setupAudioContext() {
     
     // --- 初期値の適用 ---
     
-    // コントロールの初期値を設定
     updateDistortionCurve(parseFloat(distortionAmountInput.value));
     updateReverbMix(parseFloat(reverbMixInput.value));
     updateDelayControls();
@@ -390,9 +400,9 @@ function setupAudioContext() {
 
     masterGainNode.gain.setValueAtTime(parseFloat(masterGainInput.value), audioContext.currentTime);
     
-    // EQの初期値を設定
+    // EQの初期値を設定（画面のスライダ値を反映）
     eqBands.forEach(({ input }, index) => {
-        eqNodes[index].gain.setValueAtTime(parseFloat(input.value), audioContext.currentTime);
+        if (eqNodes[index]) eqNodes[index].gain.setValueAtTime(parseFloat(input.value), audioContext.currentTime);
     });
 
     // アナライザの描画を開始
@@ -423,9 +433,9 @@ function updateDistortionCurve(amount) {
     if (distortionNode) {
         if (amount > 0) {
             distortionNode.curve = makeDistortionCurve(amount);
-            distortionNode.oversample = '4x'; // 高品質なオーバードライブ
+            distortionNode.oversample = '4x';
         } else {
-            distortionNode.curve = null; // 歪みをオフ
+            distortionNode.curve = null;
         }
     }
 }
@@ -435,10 +445,10 @@ function updateReverbMix(mixValue) {
         return;
     }
     
-    const rampTime = 0.1; 
-    // ドライ音のゲインは常に1.0 (リバーブのウェット音との混合のみ制御)
-    // リバーブノードにはドライ音（EQ後）が常に入力されているため、リバーブのドライ音のゲインは制御しません
+    const rampTime = 0.05; 
+    // ドライを (1 - mix)、ウェットを mix に設定（直感的な Dry/Wet）
     reverbWetGainNode.gain.linearRampToValueAtTime(mixValue, audioContext.currentTime + rampTime);
+    reverbDryGainNode.gain.linearRampToValueAtTime(Math.max(0, 1 - mixValue), audioContext.currentTime + rampTime);
 }
 
 function updateDelayControls() {
@@ -448,20 +458,14 @@ function updateDelayControls() {
     const time = parseFloat(delayTimeInput.value);
     const feedback = parseFloat(delayFeedbackInput.value);
     const mix = parseFloat(delayMixInput.value);
-    const rampTime = 0.1; 
+    const rampTime = 0.05; 
 
     delayNode.delayTime.linearRampToValueAtTime(time, audioContext.currentTime + rampTime);
     delayFeedbackGain.gain.linearRampToValueAtTime(feedback, audioContext.currentTime + rampTime);
     
-    // ディレイのウェット音（エコー）の量
+    // Wet/Dry の調整
     delayWetGainNode.gain.linearRampToValueAtTime(mix, audioContext.currentTime + rampTime);
-    // ディレイのドライ音（原音）の量は、EQ後の信号が担うため、ディレイのDryGainは基本的に無効化 (0)するか、すべてのアウトプットを最終段でミックスする必要があります。
-    // 今回は、EQ後の音（previousNode）とDelayNodeの出力をAnalyzerに集約するため、DryGainはミックス用として機能させます。
-    
-    // 原音とディレイ音を1:1でミックスする場合、Dry/Wet両方の出力を次のノードに渡します。
-    // ここではドライ音はEQの出力から直接流れているため、DelayDryGainNodeは基本的に使わず、Dry音はEQから直接Analyzerへ、Wet音はDelayWetGainNodeを経由してAnalyzerへ接続しています。
-    // グラフ構成を簡素化するため、DelayDryGainNodeは常に1に設定します。（ただし、ここではEQからの直接接続があるため、ノードは接続されていませんが、念のため値を設定）
-    delayDryGainNode.gain.linearRampToValueAtTime(1.0 - mix, audioContext.currentTime + rampTime);
+    delayDryGainNode.gain.linearRampToValueAtTime(Math.max(0, 1 - mix), audioContext.currentTime + rampTime);
 }
 
 function updateCompressorControls() {
@@ -565,7 +569,6 @@ delayMixInput.addEventListener('input', () => {
     updateDelayControls();
 });
 
-
 // ====================================================================
 // アナライザ描画ロジック
 // ====================================================================
@@ -573,7 +576,7 @@ delayMixInput.addEventListener('input', () => {
 function drawAnalyzer() {
     requestAnimationFrame(drawAnalyzer);
 
-    if (!analyzerNode || audioContext.state !== 'running') {
+    if (!analyzerNode || !audioContext || audioContext.state !== 'running') {
         canvasCtx.clearRect(0, 0, canvas.width, canvas.height);
         return;
     }
@@ -606,9 +609,8 @@ function drawAnalyzer() {
     }
 }
 
-
 // ====================================================================
-// メディア再生ロジック (変更なし)
+// メディア再生ロジック
 // ====================================================================
 
 function playMediaAutomatically() {
@@ -630,7 +632,6 @@ function playMediaAutomatically() {
         currentPlayer.play().catch(e => console.error("Auto play failed:", e));
     }
 }
-
 
 // --- ファイル操作とプレイリスト ---
 
@@ -668,7 +669,7 @@ function playTrack(index) {
     if (currentPlayer) {
         currentPlayer.pause();
         currentPlayer.remove();
-        if (sourceNode) sourceNode.disconnect();
+        if (sourceNode) try { sourceNode.disconnect(); } catch (e) {}
     }
 
     currentPlayer = document.createElement("audio");
@@ -691,8 +692,7 @@ function playTrack(index) {
     }, { once: true });
 }
 
-
-// --- その他の機能 (変更なし) ---
+// --- その他の機能 ---
 
 function playNextTrack() {
     if (!playlist.length) return;
@@ -795,12 +795,12 @@ function startFadeOutAndStop() {
             sleepTimerButton.textContent = "タイマー: オフ";
             
             if (masterGainNode && audioContext) {
-                // ボリュームを元の設定値に戻す
                 masterGainNode.gain.setValueAtTime(parseFloat(masterGainInput.value), audioContext.currentTime);
             }
         }
     }, duration * 1000 / steps);
 }
+
 </script>
 </body>
 </html>
