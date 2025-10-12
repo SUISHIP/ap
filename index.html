@@ -78,6 +78,11 @@
             <input type="range" id="playbackRate" min="0.5" max="2.0" value="1.0" step="0.01">
             <span id="playbackRateValue">1.00</span> (x倍速)<br>
 
+            <label for="pitchShift">ピッチ (半音):</label>
+            <input type="range" id="pitchShift" min="-12" max="12" value="0" step="1">
+            <span id="pitchShiftValue">0</span> (半音)
+            <br>
+
             <label for="panner">定位 (Pan):</label>
             <input type="range" id="panner" min="-1" max="1" value="0" step="0.01">
             <span id="pannerValue">0.00</span> (左-1.0〜右1.0)
@@ -178,6 +183,9 @@ const masterGainInput = document.getElementById('masterGain');
 const masterGainValueSpan = document.getElementById('masterGainValue');
 const pannerInput = document.getElementById('panner');
 const pannerValueSpan = document.getElementById('pannerValue');
+const pitchShiftInput = document.getElementById('pitchShift');
+const pitchShiftValueSpan = document.getElementById('pitchShiftValue');
+
 
 // EQ
 const eqBands = [
@@ -247,6 +255,23 @@ let analyzerNode = null;
 // ====================================================================
 // Web Audio API ノードの初期化とグラフ接続
 // ====================================================================
+pitchShiftInput.addEventListener('input', () => {
+    const semitone = parseInt(pitchShiftInput.value);
+    pitchShiftValueSpan.textContent = semitone;
+
+    if (currentPlayer) {
+        applyPitchShift(semitone);
+    }
+});
+function applyPitchShift(semitones) {
+    // 半音 → 倍率変換
+    const pitchRatio = Math.pow(2, semitones / 12);
+    // 再生速度とは独立してピッチを変更
+    // 現在の再生速度も考慮して掛け合わせる
+    if (currentPlayer) {
+        currentPlayer.playbackRate = parseFloat(playbackRateInput.value) * pitchRatio;
+    }
+}
 
 // ディストーション用のカーブ生成関数
 function makeDistortionCurve(amount) {
@@ -678,7 +703,10 @@ function playTrack(index) {
     currentPlayer.src = url; 
     currentPlayer.addEventListener("ended", playNextTrack);
     
-    currentPlayer.playbackRate = parseFloat(playbackRateInput.value); 
+    const baseRate = parseFloat(playbackRateInput.value);
+    const pitchSemitone = parseInt(pitchShiftInput.value);
+    const pitchRatio = Math.pow(2, pitchSemitone / 12);
+    currentPlayer.playbackRate = baseRate * pitchRatio;
 
     playerContainer.innerHTML = "";
     playerContainer.appendChild(currentPlayer);
