@@ -3,6 +3,7 @@
 <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
+    <script src="https://cdn.jsdelivr.net/npm/tone@14.8.49/build/Tone.js"></script>
     <title>フル機能メディアプレイリスター（EQ/リバーブ/ディレイ/パン/コンプ＋アナライザ）</title>
     <style>
         body {
@@ -77,11 +78,12 @@
             <label for="playbackRate">再生速度:</label>
             <input type="range" id="playbackRate" min="0.5" max="2.0" value="1.0" step="0.01">
             <span id="playbackRateValue">1.00</span> (x倍速)<br>
-
+            
             <label for="pitchShift">ピッチ (半音):</label>
             <input type="range" id="pitchShift" min="-12" max="12" value="0" step="1">
             <span id="pitchShiftValue">0</span> (半音)
             <br>
+
 
             <label for="panner">定位 (Pan):</label>
             <input type="range" id="panner" min="-1" max="1" value="0" step="0.01">
@@ -186,7 +188,6 @@ const pannerValueSpan = document.getElementById('pannerValue');
 const pitchShiftInput = document.getElementById('pitchShift');
 const pitchShiftValueSpan = document.getElementById('pitchShiftValue');
 
-
 // EQ
 const eqBands = [
     { freq: 60, input: document.getElementById('eq60') },
@@ -236,6 +237,9 @@ let masterGainNode = null;
 let stereoPannerNode = null;
 let dynamicsCompressorNode = null;
 
+let tonePlayer = null;
+let pitchShiftNode = null;
+
 let distortionNode = null;
 let eqNodes = [];
 
@@ -255,23 +259,6 @@ let analyzerNode = null;
 // ====================================================================
 // Web Audio API ノードの初期化とグラフ接続
 // ====================================================================
-pitchShiftInput.addEventListener('input', () => {
-    const semitone = parseInt(pitchShiftInput.value);
-    pitchShiftValueSpan.textContent = semitone;
-
-    if (currentPlayer) {
-        applyPitchShift(semitone);
-    }
-});
-function applyPitchShift(semitones) {
-    // 半音 → 倍率変換
-    const pitchRatio = Math.pow(2, semitones / 12);
-    // 再生速度とは独立してピッチを変更
-    // 現在の再生速度も考慮して掛け合わせる
-    if (currentPlayer) {
-        currentPlayer.playbackRate = parseFloat(playbackRateInput.value) * pitchRatio;
-    }
-}
 
 // ディストーション用のカーブ生成関数
 function makeDistortionCurve(amount) {
@@ -450,6 +437,45 @@ function setupAudioContext() {
 }
 
 
+    async function setupAudioContext() {
+    if (!audioContext || !currentPlayer || !currentPlayer.src) return;
+
+    // AudioContext の生成
+    if (!audioContext) {
+        audioContext = new (window.AudioContext || window.webkitAudioContext)();
+    }
+
+    // Tone.js の AudioContext を既存に同期
+    await Tone.setContext(audioContext);
+
+    // 既存ノードをクリア
+    if (tonePlayer) {
+        tonePlayer.dispose();
+        pitchShiftNode.dispose();
+    }
+
+    // Tone.js Player を再生成
+    tonePlayer = new Tone.Player({
+        url: currentPlayer.src,
+        autostart: false,
+        loop: false
+    }).toDestination();
+
+    // PitchShift ノードを作成（半音単位指定）
+    pitchShiftNode = new Tone.PitchShift(0); // 0 = 半音変化なし
+
+    // Tone Player → PitchShift → AudioContext入力チェーンに接続
+    tonePlayer.connect(pitchShiftNode);
+    const destination = audioContext.createMediaStreamDestination();
+    pitchShiftNode.connect(destination);
+
+    // Tone.Player を AudioContext 経由で既存のエフェクトに流す
+    const toneStream = destination.stream;
+    const toneSource = audioContext.createMediaStreamSource(toneStream);
+    sourceNode = toneSource; // 既存グラフの入口をToneからの出力に変更
+}
+
+
 // ====================================================================
 // エフェクトコントロールの更新関数
 // ====================================================================
@@ -462,6 +488,11 @@ function updateDistortionCurve(amount) {
         } else {
             distortionNode.curve = null;
         }
+    }
+}
+function updatePitchShift(semitones) {
+    if (pitchShiftNode) {
+        pitchShiftNode.pitch = semitones; // 半音単位でリアルタイム変更
     }
 }
 
@@ -520,6 +551,11 @@ masterGainInput.addEventListener('input', () => {
     if (masterGainNode && audioContext) {
         masterGainNode.gain.setValueAtTime(gainValue, audioContext.currentTime);
     }
+});
+pitchShiftInput.addEventListener('input', () => {
+    const semitone = parseInt(pitchShiftInput.value);
+    pitchShiftValueSpan.textContent = semitone;
+    updatePitchShift(semitone);
 });
 
 playbackRateInput.addEventListener('input', () => {
@@ -694,31 +730,29 @@ function playTrack(index) {
     if (currentPlayer) {
         currentPlayer.pause();
         currentPlayer.remove();
-        if (sourceNode) try { sourceNode.disconnect(); } catch (e) {}
+        if (sourceNode) sourceNode.disconnect();
     }
 
+    // 通常の <audio> UI は残す
     currentPlayer = document.createElement("audio");
     currentPlayer.id = "mediaPlayer";
-    currentPlayer.controls = true; 
-    currentPlayer.src = url; 
+    currentPlayer.controls = true;
+    currentPlayer.src = url;
     currentPlayer.addEventListener("ended", playNextTrack);
-    
-    const baseRate = parseFloat(playbackRateInput.value);
-    const pitchSemitone = parseInt(pitchShiftInput.value);
-    const pitchRatio = Math.pow(2, pitchSemitone / 12);
-    currentPlayer.playbackRate = baseRate * pitchRatio;
-
     playerContainer.innerHTML = "";
     playerContainer.appendChild(currentPlayer);
 
     songInfo.textContent = `再生中: ${file.name} (${getFormattedDuration(duration)})`;
     updatePlayHistory();
 
-    currentPlayer.addEventListener('canplay', () => {
-        setupAudioContext();
-        playMediaAutomatically();
+    currentPlayer.addEventListener('canplay', async () => {
+        await setupAudioContext();
+        await Tone.loaded();
+
+        tonePlayer.start(); // Tone経由で再生
     }, { once: true });
 }
+
 
 // --- その他の機能 ---
 
