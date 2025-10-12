@@ -721,8 +721,7 @@ function addToPlaylist(file) {
         tempEl.remove();
     });
 }
-
-function playTrack(index) {
+async function playTrack(index) {
     if (!playlist[index]) return;
     const { file, url, duration } = playlist[index];
     currentTrackIndex = index;
@@ -745,13 +744,27 @@ function playTrack(index) {
     songInfo.textContent = `再生中: ${file.name} (${getFormattedDuration(duration)})`;
     updatePlayHistory();
 
+    // Tone.js 再生を安全に実行
     currentPlayer.addEventListener('canplay', async () => {
-        await setupAudioContext();
-        await Tone.loaded();
+        try {
+            await setupAudioContext();
+            await Tone.loaded(); // Playerのロード完了を待つ
 
-        tonePlayer.start(); // Tone経由で再生
+            if (!tonePlayer) {
+                console.error("tonePlayer が初期化されていません");
+                return;
+            }
+
+            // Tone.js の Transport を再開（必要な場合）
+            await Tone.start();
+
+            tonePlayer.start();
+        } catch (err) {
+            console.error("Tone.js 再生エラー:", err);
+        }
     }, { once: true });
 }
+
 
 
 // --- その他の機能 ---
