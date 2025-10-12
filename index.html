@@ -544,7 +544,10 @@ function updatePanner() {
 // ====================================================================
 // コントロールイベントハンドラ
 // ====================================================================
-
+document.getElementById('playButton').addEventListener('click', async () => {
+    await Tone.start();
+    console.log("Audio context unlocked!");
+});
 masterGainInput.addEventListener('input', () => {
     const gainValue = parseFloat(masterGainInput.value);
     masterGainValueSpan.textContent = gainValue.toFixed(2);
