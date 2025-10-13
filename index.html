@@ -456,68 +456,114 @@
     }
     function writeString(view, offset, string){ for (var i = 0; i < string.length; i++){ view.setUint8(offset + i, string.charCodeAt(i)); } }
 
-    exportBtn.addEventListener('click', async () => {
-      if(!player || !player.buffer){ alert('まず音声ファイルを読み込んでください。'); return; }
-      exportBtn.disabled = true; exportBtn.textContent = 'レンダリング中...';
+exportBtn.addEventListener('click', async () => {
+  if (!player || !player.buffer) {
+    alert('まず音声ファイルを読み込んでください。');
+    return;
+  }
+  exportBtn.disabled = true;
+  exportBtn.textContent = 'レンダリング中...';
 
-      const duration = player.buffer.duration;
-      try{
-        // compute effective pitch to use in offline render (compensation + manual)
-        const playbackRateVal = Number(controls.playbackRate.value);
-        const manualPitch = Number(controls.pitch.value);
-        const comp = computeCompensationSemitones(playbackRateVal);
-        const effectivePitch = comp + manualPitch;
+  const duration = player.buffer.duration;
+  try {
+    // 有効ピッチ計算
+    const playbackRateVal = Number(controls.playbackRate.value);
+    const manualPitch = Number(controls.pitch.value);
+    const comp = computeCompensationSemitones(playbackRateVal);
+    const effectivePitch = comp + manualPitch;
 
-        const rendered = await Tone.Offline(async ({context}) => {
-          // In offline context, create nodes and connect in same signal chain
-          const p = new Tone.Player(player.buffer).connect(new Tone.Gain()).toDestination();
+    const rendered = await Tone.Offline(async ({ context }) => {
+      // オフライン用Player
+      const p = new Tone.Player(player.buffer).toDestination();
+      p.playbackRate = playbackRateVal;
+      p.loop = false;
 
-          const ps = new Tone.PitchShift({pitch: effectivePitch}).toDestination();
-          const dist = new Tone.Distortion(distortion.distortion).toDestination();
-          const compNode = new Tone.Compressor({
-            threshold: compressor.threshold.value,
-            ratio: compressor.ratio.value,
-            attack: compressor.attack.value,
-            release: compressor.release.value
-          }).toDestination();
-          const rv = new Tone.Reverb({decay: reverb.decay, wet: reverb.wet}).toDestination();
-          const dl = new Tone.FeedbackDelay({delayTime: delay.delayTime.value, feedback: delay.feedback.value, wet: delay.wet}).toDestination();
+      // エフェクトノード（値のみで初期化）
+      const ps = new Tone.PitchShift({ pitch: effectivePitch });
+      const dist = new Tone.Distortion(Number(controls.distortion.value));
+      const compNode = new Tone.Compressor({
+        threshold: Number(controls.compThresh.value),
+        ratio: compressor.ratio.value,
+        attack: compressor.attack.value,
+        release: compressor.release.value
+      });
+      const rv = new Tone.Reverb({
+        decay: Number(controls.reverbDecay.value),
+        wet: Number(controls.reverbWet.value)
+      });
+      const dl = new Tone.FeedbackDelay({
+        delayTime: Number(controls.delayTime.value),
+        feedback: delay.feedback.value,
+        wet: delay.wet.value
+      });
 
-          // native biquads in offline context
-          const offlineCtx = context.rawContext;
-          const ob1 = offlineCtx.createBiquadFilter(); ob1.type='peaking'; ob1.frequency.value = b1.frequency.value; ob1.Q.value = b1.Q.value; ob1.gain.value = b1.gain.value;
-          const ob2 = offlineCtx.createBiquadFilter(); ob2.type='peaking'; ob2.frequency.value = b2.frequency.value; ob2.Q.value = b2.Q.value; ob2.gain.value = b2.gain.value;
-          const ob3 = offlineCtx.createBiquadFilter(); ob3.type='peaking'; ob3.frequency.value = b3.frequency.value; ob3.Q.value = b3.Q.value; ob3.gain.value = b3.gain.value;
+      // マスターゲイン
+      const offlineCtx = context.rawContext;
+      const masterGain = offlineCtx.createGain();
+      masterGain.gain.value = Math.pow(10, Number(controls.masterVol.value) / 20);
+      masterGain.connect(offlineCtx.destination);
 
-          // connect offline chain: p -> ps -> dist -> comp -> ob1 -> ob2 -> ob3 -> destination
-          p.disconnect();
-          p.connect(ps);
-          ps.connect(dist);
-          dist.connect(compNode);
+      // EQ Biquad
+      const ob1 = offlineCtx.createBiquadFilter();
+      ob1.type = 'peaking';
+      ob1.frequency.value = Number(b1freq.value);
+      ob1.Q.value = Number(b1q.value);
+      ob1.gain.value = Number(b1gain.value);
 
-          // connect compressor -> native nodes via Tone.connect (works in offline context)
-          compNode.connect(ob1);
-          ob1.connect(ob2); ob2.connect(ob3);
-          ob3.connect(offlineCtx.destination);
-          compNode.connect(rv); rv.connect(offlineCtx.destination);
-          compNode.connect(dl); dl.connect(offlineCtx.destination);
+      const ob2 = offlineCtx.createBiquadFilter();
+      ob2.type = 'peaking';
+      ob2.frequency.value = Number(b2freq.value);
+      ob2.Q.value = Number(b2q.value);
+      ob2.gain.value = Number(b2gain.value);
 
-          // set playback rate on offline player
-          p.playbackRate = playbackRateVal;
-          p.start(0);
-        }, duration);
+      const ob3 = offlineCtx.createBiquadFilter();
+      ob3.type = 'peaking';
+      ob3.frequency.value = Number(b3freq.value);
+      ob3.Q.value = Number(b3q.value);
+      ob3.gain.value = Number(b3gain.value);
 
-        let audioBuffer = rendered instanceof AudioBuffer ? rendered : (rendered && rendered.get ? rendered.get() : rendered);
-        if(!audioBuffer){ console.error('レンダリング結果が見つかりません'); alert('レンダリングに失敗しました'); }
-        else{
-          const blob = bufferToWav(audioBuffer);
-          const url = URL.createObjectURL(blob);
-          downloadLink.href = url; downloadLink.style.display='inline'; downloadLink.textContent = 'ダウンロード'; downloadLink.download = 'processed.wav';
-          downloadLink.click();
-        }
-      }catch(err){ console.error(err); alert('レンダリング中にエラーが発生しました'); }
-      exportBtn.disabled = false; exportBtn.textContent = '編集済み音声をダウンロード';
-    });
+      // チェーン構築: p -> ps -> dist -> compNode -> ob1 -> ob2 -> ob3 -> masterGain
+      p.disconnect();
+      p.connect(ps);
+      ps.connect(dist);
+      dist.connect(compNode);
+
+      compNode.connect(ob1);
+      ob1.connect(ob2);
+      ob2.connect(ob3);
+      ob3.connect(masterGain);
+
+      // パラレルでリバーブ・ディレイ
+      compNode.connect(rv);
+      rv.connect(masterGain);
+      compNode.connect(dl);
+      dl.connect(masterGain);
+
+      // 再生開始
+      p.start(0);
+    }, duration);
+
+    // AudioBuffer→WAV変換・ダウンロードリンク生成
+    let audioBuffer = rendered instanceof AudioBuffer ? rendered : (rendered && rendered.get ? rendered.get() : rendered);
+    if (!audioBuffer) {
+      console.error('レンダリング結果が見つかりません');
+      alert('レンダリングに失敗しました');
+    } else {
+      const blob = bufferToWav(audioBuffer);
+      const url = URL.createObjectURL(blob);
+      downloadLink.href = url;
+      downloadLink.style.display = 'inline';
+      downloadLink.textContent = 'ダウンロード';
+      downloadLink.download = 'processed.wav';
+      downloadLink.click();
+    }
+  } catch (err) {
+    console.error(err);
+    alert('レンダリング中にエラーが発生しました');
+  }
+  exportBtn.disabled = false;
+  exportBtn.textContent = '編集済み音声をダウンロード';
+});
 
     // initial draw
     drawEQCurve();
