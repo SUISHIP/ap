@@ -474,7 +474,12 @@
 
           const ps = new Tone.PitchShift({pitch: effectivePitch}).toDestination();
           const dist = new Tone.Distortion(distortion.distortion).toDestination();
-          const compNode = new Tone.Compressor({threshold: compressor.threshold.value, ratio: compressor.ratio.value, attack: compressor.attack, release: compressor.release}).toDestination();
+          const compNode = new Tone.Compressor({
+            threshold: compressor.threshold.value,
+            ratio: compressor.ratio.value,
+            attack: compressor.attack.value,
+            release: compressor.release.value
+          }).toDestination();
           const rv = new Tone.Reverb({decay: reverb.decay, wet: reverb.wet}).toDestination();
           const dl = new Tone.FeedbackDelay({delayTime: delay.delayTime.value, feedback: delay.feedback.value, wet: delay.wet}).toDestination();
 
