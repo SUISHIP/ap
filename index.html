@@ -289,26 +289,34 @@ function createReverbBuffer(context, duration = 0.5) {
     return buffer;
 }
 
+async function setupAudioContext() {
+    // AudioContext を作成（なければ）
+    if (!audioContext) {
+        audioContext = new (window.AudioContext || window.webkitAudioContext)();
+    }
 
-function setupAudioContext() {
-    if (!audioContext || !currentPlayer || !currentPlayer.src) return; 
+    // Tone.js 側に既存の audioContext を設定
+    await Tone.setContext(audioContext);
 
-    // 既存の接続をすべて解除
+    // 既存のノードを安全にクリア（dispose など）
     try {
-        if (sourceNode) sourceNode.disconnect();
-    } catch (e) { /* ignore */ }
-    eqNodes.forEach(node => {
-        try { node.disconnect(); } catch (e) {}
-    });
-    
-    // --- ノードの作成と初期化 ---
-    
+        if (tonePlayer) {
+            tonePlayer.stop();
+            tonePlayer.dispose();
+            tonePlayer = null;
+        }
+    } catch (e) {
+        console.warn("dispose previous tonePlayer:", e);
+    }
+    // 既存の sourceNode があれば切断
+    try { if (sourceNode) sourceNode.disconnect(); } catch (e) {}
+
+    // --- WebAudio ノード群の生成（存在しなければ） ---
     if (!masterGainNode) masterGainNode = audioContext.createGain();
     if (!stereoPannerNode) stereoPannerNode = audioContext.createStereoPanner();
     if (!dynamicsCompressorNode) dynamicsCompressorNode = audioContext.createDynamicsCompressor();
     if (!distortionNode) distortionNode = audioContext.createWaveShaper();
 
-    // リバーブノード
     if (!convolverNode) {
         convolverNode = audioContext.createConvolver();
         reverbBuffer = createReverbBuffer(audioContext);
@@ -316,163 +324,47 @@ function setupAudioContext() {
     }
     if (!reverbDryGainNode) reverbDryGainNode = audioContext.createGain();
     if (!reverbWetGainNode) reverbWetGainNode = audioContext.createGain();
-    
-    // ディレイノード (フィードバックループとドライ/ウェット構成)
-    if (!delayNode) delayNode = audioContext.createDelay(1.0); // 最大1秒ディレイ
+
+    if (!delayNode) delayNode = audioContext.createDelay(1.0);
     if (!delayFeedbackGain) delayFeedbackGain = audioContext.createGain();
     if (!delayDryGainNode) delayDryGainNode = audioContext.createGain();
     if (!delayWetGainNode) delayWetGainNode = audioContext.createGain();
 
-    // AnalyserNode
     if (!analyzerNode) {
         analyzerNode = audioContext.createAnalyser();
-        analyzerNode.fftSize = 2048; 
+        analyzerNode.fftSize = 2048;
         const bufferLength = analyzerNode.frequencyBinCount;
         analyzerNode.dataArray = new Uint8Array(bufferLength);
     }
-    
-    // ソース（MediaElementSource）
-    try {
-        sourceNode = audioContext.createMediaElementSource(currentPlayer);
-    } catch (e) {
-        // 既に currentPlayer に対して source 作成済みのケースなどの安全対策
-        console.warn("createMediaElementSource error:", e);
-    }
-    
-    // --- 信号フローの接続 ---
-    
-    // 1. ソース -> マスターゲイン
-    if (sourceNode) sourceNode.connect(masterGainNode);
-    let previousNode = masterGainNode;
 
-    // 2. マスターゲイン -> ディストーション
-    previousNode.connect(distortionNode);
-    previousNode = distortionNode;
-
-    // 3. ディストーション -> EQ群
-    eqNodes = [];
-    let eqInputNode = previousNode; 
-    eqBands.forEach(band => {
-        const filter = audioContext.createBiquadFilter();
-        filter.type = 'peaking'; 
-        filter.frequency.setValueAtTime(band.freq, audioContext.currentTime);
-        filter.Q.setValueAtTime(1.0, audioContext.currentTime); 
-        filter.gain.setValueAtTime(parseFloat(band.input.value || 0), audioContext.currentTime);
-        eqNodes.push(filter);
-        eqInputNode.connect(filter);
-        eqInputNode = filter;
-    });
-    previousNode = eqInputNode; // EQの最後のノード
-
-    // 4. EQの出力から3つに分岐 (ドライ音、リバーブ、ディレイ)
-
-    // a) リバーブ (パラレル接続)
-    previousNode.connect(convolverNode);
-    convolverNode.connect(reverbWetGainNode);
-    // --- 重要: リバーブのドライ経路も明確に作る（元音を別ゲインで保持） ---
-    previousNode.connect(reverbDryGainNode);
-
-    // b) ディレイ (パラレル接続 & フィードバックループ)
-    previousNode.connect(delayDryGainNode); // ディレイのドライ音
-    previousNode.connect(delayNode);       // ディレイのインプット
-    
-    // フィードバックループ: Delay -> FeedbackGain -> Delay
-    delayNode.connect(delayFeedbackGain);
-    delayFeedbackGain.connect(delayNode);
-    
-    // ディレイの出力 (ウェット音)
-    delayNode.connect(delayWetGainNode);
-
-    // c) ドライ音 (EQ後のクリーンな音)
-    // (EQ出力は直接 reverbDryGainNode / delayDryGainNode などに繋がれている構成)
-
-    // 5. すべてのウェット/ドライ音を合流させるためのノードを作成 (ここではアナライザの前に接続)
-    // 各ウェット/ドライをアナライザへ接続
-    // 1. EQ後のドライ音 (reverbDryGainNode か直接 previousNode のどちらか) -> ここでは reverbDryGainNode を使う
-    reverbDryGainNode.connect(analyzerNode); 
-    // 2. リバーブのウェット音
-    reverbWetGainNode.connect(analyzerNode); 
-    // 3. ディレイのドライ音
-    delayDryGainNode.connect(analyzerNode);
-    // 4. ディレイのウェット音
-    delayWetGainNode.connect(analyzerNode);
-
-    // 6. アナライザ -> コンプレッサー -> パンナー -> 最終出力
+    // --- シグナルフローを作る ---
+    // ここで sourceNode は後で Tone から作る（MediaStreamSource）ので、masterGainNode を入口にする想定で接続を構築
+    // ただし一旦 masterGainNode を destination に繋げておく（後から sourceNode.connect(masterGainNode) を呼ぶ）
+    // 出力側の接続（analyzer -> compressor -> panner -> destination）
     analyzerNode.connect(dynamicsCompressorNode);
     dynamicsCompressorNode.connect(stereoPannerNode);
     stereoPannerNode.connect(audioContext.destination);
-    
-    // --- 初期値の適用 ---
-    
+
+    // EQ をここで初期化（まだ接続しない）、eqNodes 配列は空にしておく。実際の接続は後で sourceNode.connect(masterGainNode) の後に行う
+    eqNodes = [];
+
+    // --- Tone.js 側の初期化は playTrack 側で行う（URLごと） ---
+    // ただしここで初期値等を設定しておく
     updateDistortionCurve(parseFloat(distortionAmountInput.value));
     updateReverbMix(parseFloat(reverbMixInput.value));
     updateDelayControls();
     updateCompressorControls();
     updatePanner();
 
-    masterGainNode.gain.setValueAtTime(parseFloat(masterGainInput.value), audioContext.currentTime);
-    
-    // EQの初期値を設定（画面のスライダ値を反映）
-    eqBands.forEach(({ input }, index) => {
-        if (eqNodes[index]) eqNodes[index].gain.setValueAtTime(parseFloat(input.value), audioContext.currentTime);
-    });
+    masterGainNode.gain.setValueAtTime(parseFloat(masterGainInput.value || 1), audioContext.currentTime);
 
-    // アナライザの描画を開始
-    drawAnalyzer();
-
-    // コントロールの表示を更新
-    masterGainValueSpan.textContent = parseFloat(masterGainInput.value).toFixed(2);
-    playbackRateValueSpan.textContent = parseFloat(playbackRateInput.value).toFixed(2);
-    pannerValueSpan.textContent = parseFloat(pannerInput.value).toFixed(2);
-    reverbMixValueSpan.textContent = parseFloat(reverbMixInput.value).toFixed(2);
-    delayTimeValueSpan.textContent = parseFloat(delayTimeInput.value).toFixed(2);
-    delayFeedbackValueSpan.textContent = parseFloat(delayFeedbackInput.value).toFixed(2);
-    delayMixValueSpan.textContent = parseFloat(delayMixInput.value).toFixed(2);
-    distortionAmountValueSpan.textContent = parseFloat(distortionAmountInput.value);
-    compThresholdValueSpan.textContent = parseFloat(compThresholdInput.value).toFixed(1);
-    compRatioValueSpan.textContent = parseFloat(compRatioInput.value).toFixed(1);
+    // EQ スライダの値をテキスト表示に反映（ノードが後で作られてから gain を set する）
     eqBands.forEach(({ input }) => {
         input.nextElementSibling.textContent = parseFloat(input.value).toFixed(1);
     });
-}
 
-
-    async function setupAudioContext() {
-    if (!audioContext || !currentPlayer || !currentPlayer.src) return;
-
-    // AudioContext の生成
-    if (!audioContext) {
-        audioContext = new (window.AudioContext || window.webkitAudioContext)();
-    }
-
-    // Tone.js の AudioContext を既存に同期
-    await Tone.setContext(audioContext);
-
-    // 既存ノードをクリア
-    if (tonePlayer) {
-        tonePlayer.dispose();
-        pitchShiftNode.dispose();
-    }
-
-    // Tone.js Player を再生成
-    tonePlayer = new Tone.Player({
-        url: currentPlayer.src,
-        autostart: false,
-        loop: false
-    }).toDestination();
-
-    // PitchShift ノードを作成（半音単位指定）
-    pitchShiftNode = new Tone.PitchShift(0); // 0 = 半音変化なし
-
-    // Tone Player → PitchShift → AudioContext入力チェーンに接続
-    tonePlayer.connect(pitchShiftNode);
-    const destination = audioContext.createMediaStreamDestination();
-    pitchShiftNode.connect(destination);
-
-    // Tone.Player を AudioContext 経由で既存のエフェクトに流す
-    const toneStream = destination.stream;
-    const toneSource = audioContext.createMediaStreamSource(toneStream);
-    sourceNode = toneSource; // 既存グラフの入口をToneからの出力に変更
+    // 描画ループ開始（既に始まっていても問題ない）
+    drawAnalyzer();
 }
 
 
@@ -488,11 +380,6 @@ function updateDistortionCurve(amount) {
         } else {
             distortionNode.curve = null;
         }
-    }
-}
-function updatePitchShift(semitones) {
-    if (pitchShiftNode) {
-        pitchShiftNode.pitch = semitones; // 半音単位でリアルタイム変更
     }
 }
 
@@ -729,17 +616,26 @@ async function playTrack(index) {
     const { file, url, duration } = playlist[index];
     currentTrackIndex = index;
 
+    // 前の currentPlayer/tonePlayer を停止/解放
     if (currentPlayer) {
-        currentPlayer.pause();
-        currentPlayer.remove();
-        if (sourceNode) sourceNode.disconnect();
+        try { currentPlayer.pause(); } catch (e) {}
+        try { currentPlayer.remove(); } catch (e) {}
+        if (sourceNode) {
+            try { sourceNode.disconnect(); } catch (e) {}
+            sourceNode = null;
+        }
+    }
+    if (tonePlayer) {
+        try { tonePlayer.stop(); tonePlayer.dispose(); } catch (e) {}
+        tonePlayer = null;
     }
 
-    // 通常の <audio> UI は残す
+    // <audio> 要素は UI として残すが、実際の音は Tone.Player が出す（audio element はミュート）
     currentPlayer = document.createElement("audio");
     currentPlayer.id = "mediaPlayer";
     currentPlayer.controls = true;
     currentPlayer.src = url;
+    currentPlayer.muted = true; // 重要：実際のサウンドは Tone.Player で出す
     currentPlayer.addEventListener("ended", playNextTrack);
     playerContainer.innerHTML = "";
     playerContainer.appendChild(currentPlayer);
@@ -747,25 +643,122 @@ async function playTrack(index) {
     songInfo.textContent = `再生中: ${file.name} (${getFormattedDuration(duration)})`;
     updatePlayHistory();
 
-    // Tone.js 再生を安全に実行
+    // Tone を使って再生（PitchShift を介して WebAudio グラフに流し込む）
     currentPlayer.addEventListener('canplay', async () => {
         try {
+            // AudioContext とノード群を準備
             await setupAudioContext();
-            await Tone.loaded(); // Playerのロード完了を待つ
 
-            if (!tonePlayer) {
-                console.error("tonePlayer が初期化されていません");
-                return;
-            }
+            // Tone.Player を生成（URL は currentPlayer.src）
+            tonePlayer = new Tone.Player({
+                url: currentPlayer.src,
+                autostart: false,
+                loop: false
+            });
 
-            // Tone.js の Transport を再開（必要な場合）
+            // PitchShift ノードを作成して tonePlayer に接続
+            pitchShiftNode = new Tone.PitchShift(parseInt(pitchShiftInput.value || 0));
+            tonePlayer.connect(pitchShiftNode);
+
+            // Tone の PitchShift 出力を MediaStream 経由で WebAudio に取り込む
+            const destination = audioContext.createMediaStreamDestination();
+            // PitchShift は Tone のノードなので、まず Tone の出力先を MediaStreamDestination に接続する
+            // Tone から native destination に接続するために、Tone の node を Web Audio の MediaStreamDestination に connect:
+            // Tone のノードは .toDestination() 等で出力するが、ここでは connect を使って destination に流す
+            pitchShiftNode.toDestination(); // 一旦 Tone の内部 destination に繋ぐ（Tone が内部で参照する audioContext は同じ）
+            // しかし toDestination() は内部 destination に繋ぐので、代替で pitchShiftNode.connect(Tone.getDestination()) と同等になる。
+            // その後、Tone 側の出力を audioContext.createMediaStreamDestination() にも繋ぎ、MediaStream を得る方法：
+            // simplest: create a MediaStream from Tone by routing pitchShiftNode to a MediaStreamDestination created from audioContext
+            // For that, use pitchShiftNode.connect(Tone.context.rawContext.createMediaStreamDestination()) — Tone.context is the same audioContext.
+            const msDestination = audioContext.createMediaStreamDestination();
+            // connect Tone's internal node to msDestination. We can access the native node via pitchShiftNode.output
+            // pitchShiftNode.output is a Tone node; to get underlying AudioNode, use pitchShiftNode.connect(msDestination) via Tone API:
+            pitchShiftNode.connect(msDestination);
+
+            // Create a MediaStreamSource from the MediaStream
+            const toneStream = msDestination.stream;
+            const toneSource = audioContext.createMediaStreamSource(toneStream);
+            sourceNode = toneSource;
+
+            // --- Now build the rest of the signal chain: sourceNode -> distortion -> EQ -> (reverb/delay) -> analyzer -> compressor -> panner -> destination ---
+            // connect sourceNode to masterGainNode (入口)
+            sourceNode.connect(masterGainNode);
+
+            // distortion
+            masterGainNode.connect(distortionNode);
+
+            // build EQ chain: connect distortion -> first filter -> ... -> last filter
+            eqNodes = [];
+            let prev = distortionNode;
+            eqBands.forEach(band => {
+                const filter = audioContext.createBiquadFilter();
+                filter.type = 'peaking';
+                filter.frequency.setValueAtTime(band.freq, audioContext.currentTime);
+                filter.Q.setValueAtTime(1.0, audioContext.currentTime);
+                filter.gain.setValueAtTime(parseFloat(band.input.value || 0), audioContext.currentTime);
+                prev.connect(filter);
+                eqNodes.push(filter);
+                prev = filter;
+            });
+
+            // prev は EQ の最後のノード（もしくは distortionNode のまま）
+            // リバーブ／ディレイの並列接続
+            prev.connect(convolverNode);
+            prev.connect(reverbDryGainNode);
+            prev.connect(delayDryGainNode);
+            prev.connect(delayNode);
+
+            // delay のフィードバックと wet 出力
+            delayNode.connect(delayFeedbackGain);
+            delayFeedbackGain.connect(delayNode);
+            delayNode.connect(delayWetGainNode);
+
+            // 各 wet/dry を analyzer へ接続
+            reverbDryGainNode.connect(analyzerNode);
+            reverbWetGainNode.connect(analyzerNode);
+            delayDryGainNode.connect(analyzerNode);
+            delayWetGainNode.connect(analyzerNode);
+
+            // analyzer -> compressor -> panner -> destination は setupAudioContext で繋いである
+            // したがって接続は完了
+
+            // 初期パラメータの反映
+            updateDistortionCurve(parseFloat(distortionAmountInput.value || 0));
+            updateReverbMix(parseFloat(reverbMixInput.value || 0.3));
+            updateDelayControls();
+            updateCompressorControls();
+            updatePanner();
+
+            // Tone.Player のロードを待ってから再生
+            await tonePlayer.load(currentPlayer.src);
             await Tone.start();
-
             tonePlayer.start();
+
+            // UI側の標準 <audio> はミュートしたまま再生位置同期（必要なら）させる
+            // currentPlayer.play() は UI の進行状況表示のために使える（ミュートなので音は出ない）
+            try { await currentPlayer.play(); } catch(e) { /* ignore autoplay block */ }
+
         } catch (err) {
-            console.error("Tone.js 再生エラー:", err);
+            console.error("Tone.js 再生エラー（統合版）:", err);
         }
     }, { once: true });
+}
+
+// ---------------------------
+// ピッチ変更関数（Tone.PitchShift を直接更新）
+// ---------------------------
+function updatePitchShift(semitones) {
+    if (pitchShiftNode && typeof pitchShiftNode.pitch !== 'undefined') {
+        // Tone.PitchShift は .pitch プロパティに半音値を受け取る実装
+        try {
+            pitchShiftNode.pitch = semitones;
+        } catch (e) {
+            // fallback: try set value via parameter if available
+            try { pitchShiftNode.set({ pitch: semitones }); } catch (e2) {}
+        }
+    } else {
+        console.warn("pitchShiftNode が未作成 or .pitch 未定義");
+    }
 }
 
 
