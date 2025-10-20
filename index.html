@@ -3,573 +3,181 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1" />
-  <title>オーディオプレイヤー</title>
-  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600&display=swap">
+  <title>1時間ループ再生</title>
   <style>
-    :root{--bg:#0f1724;--card:#0b1220;--accent:#7c3aed;--muted:#94a3b8}
-    *{box-sizing:border-box;font-family:Inter,system-ui,Segoe UI,Roboto,'Helvetica Neue',Arial}
-    body{margin:0;background:linear-gradient(180deg,#071027 0%, #07121a 100%);color:#e6eef8;min-height:100vh;padding:20px}
-    .wrap{max-width:1200px;margin:0 auto}
-    h1{margin:0 0 12px;font-size:18px}
-    .grid{display:grid;grid-template-columns:1fr 420px;gap:18px}
-    .card{background:var(--card);padding:16px;border-radius:10px;box-shadow:0 6px 26px rgba(2,6,23,0.6)}
-    .row{display:flex;align-items:center;gap:10px}
-    label{font-size:13px;color:var(--muted);min-width:140px}
-    input[type=range]{width:100%}
-    .value{min-width:60px;text-align:right;font-weight:600}
-    .small{font-size:12px;color:var(--muted)}
-    .controls{display:grid;gap:10px}
-    button{background:var(--accent);border:none;color:white;padding:8px 12px;border-radius:8px;cursor:pointer}
-    button.secondary{background:transparent;border:1px solid rgba(255,255,255,0.06)}
-    canvas{width:100%;height:120px;border-radius:8px;background:#050814;display:block}
-    .preset-row{display:flex;gap:8px;margin-top:8px}
-    .flex-between{display:flex;justify-content:space-between;align-items:center}
-    .eq-canvas{height:160px}
+    body { font-family: system-ui, -apple-system, "Segoe UI", Roboto, "ヒラギノ角ゴ ProN", "Hiragino Kaku Gothic ProN", Meiryo, sans-serif; padding: 20px; max-width: 800px; margin: auto; }
+    .player { margin-top: 16px; }
+    .controls { margin-top: 12px; display:flex; gap:8px; align-items:center; flex-wrap:wrap; }
+    .time { font-weight: 600; }
+    .notice { margin-top:10px; color: #666; font-size:0.9rem; }
   </style>
 </head>
 <body>
-  <div class="wrap">
-    <h1>オーディオプレイヤー</h1>
-    <div class="grid">
-      <div class="card">
-        <div class="row" style="gap:12px;margin-bottom:10px">
-          <input id="file" type="file" accept="audio/*">
-          <div class="small" id="filename">ファイル未選択</div>
-          <div style="flex:1"></div>
-          <button id="play">再生</button>
-          <button id="stop" class="secondary">停止</button>
-        </div>
+  <h1>ファイルを選択して1時間ループ再生</h1>
 
-        <div class="controls">
-          <div class="row">
-            <label>ループ</label>
-            <input id="loop" type="checkbox" checked>
-            <div class="value small">常にループ</div>
-          </div>
+  <p>ローカルの音声または動画ファイルを選択してください。選択時に再生が始まり、合計で1時間経過するまでファイルをループ再生します。</p>
 
-          <div class="row">
-            <label>再生速度</label>
-            <input id="playbackRate" type="range" min="0.25" max="3" step="0.01" value="1">
-            <div class="value" id="playbackRateVal">1.00x</div>
-          </div>
+  <input id="fileInput" type="file" accept="audio/*,video/*" />
+  <div class="player" id="playerContainer"></div>
 
-          <div class="row">
-            <label>ピッチシフト (半音)</label>
-            <input id="pitch" type="range" min="-24" max="24" step="1" value="0">
-            <div style="display:flex;flex-direction:column;align-items:flex-end">
-              <div class="value" id="pitchManualVal">0</div>
-              <div class="small" id="pitchEffectiveVal">Effective: 0.00 semitones</div>
-            </div>
-          </div>
-
-          <hr style="opacity:0.06">
-
-          <div class="row">
-            <label>マスター音量 (dB)</label>
-            <input id="masterVol" type="range" min="-60" max="12" step="0.1" value="0">
-            <div class="value" id="masterVolVal">0 dB</div>
-          </div>
-
-          <div class="row">
-            <label>コンプレッサー Threshold (dB)</label>
-            <input id="compThresh" type="range" min="-60" max="0" step="0.5" value="-24">
-            <div class="value" id="compThreshVal">-24 dB</div>
-          </div>
-
-          <div class="row">
-            <label>ディストーション⚠️</label>
-            <input id="distortion" type="range" min="0" max="1" step="0.01" value="0">
-            <div class="value" id="distortionVal">0%</div>
-          </div>
-
-          <hr style="opacity:0.06">
-
-          <div>
-            <div class="small">パラメトリックEQ（視覚的に編集）</div>
-            <canvas id="eqCanvas" class="eq-canvas"></canvas>
-            <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-top:8px">
-              <!-- Band controls: frequency, Q, gain -->
-              <div>
-                <div class="small">Band 1 (低域)</div>
-                <input id="b1freq" type="range" min="20" max="600" step="1" value="120">
-                <div class="small">freq <span id="b1freqVal">120</span> Hz</div>
-                <input id="b1q" type="range" min="0.1" max="18" step="0.1" value="1">
-                <div class="small">Q <span id="b1qVal">1.0</span></div>
-                <input id="b1gain" type="range" min="-24" max="24" step="0.1" value="0">
-                <div class="small">gain <span id="b1gainVal">0</span> dB</div>
-              </div>
-              <div>
-                <div class="small">Band 2 (中域)</div>
-                <input id="b2freq" type="range" min="200" max="3000" step="1" value="1000">
-                <div class="small">freq <span id="b2freqVal">1000</span> Hz</div>
-                <input id="b2q" type="range" min="0.1" max="18" step="0.1" value="1">
-                <div class="small">Q <span id="b2qVal">1.0</span></div>
-                <input id="b2gain" type="range" min="-24" max="24" step="0.1" value="0">
-                <div class="small">gain <span id="b2gainVal">0</span> dB</div>
-              </div>
-              <div>
-                <div class="small">Band 3 (高域)</div>
-                <input id="b3freq" type="range" min="1000" max="16000" step="1" value="6000">
-                <div class="small">freq <span id="b3freqVal">6000</span> Hz</div>
-                <input id="b3q" type="range" min="0.1" max="18" step="0.1" value="1">
-                <div class="small">Q <span id="b3qVal">1.0</span></div>
-                <input id="b3gain" type="range" min="-24" max="24" step="0.1" value="0">
-                <div class="small">gain <span id="b3gainVal">0</span> dB</div>
-              </div>
-            </div>
-          </div>
-
-          <hr style="opacity:0.06">
-
-          <div class="small">空間系</div>
-          <div class="row">
-            <label>リバーブ Decay (s)</label>
-            <input id="reverbDecay" type="range" min="0.1" max="10" step="0.1" value="1.5">
-            <div class="value" id="reverbDecayVal">1.5s</div>
-          </div>
-          <div class="row">
-            <label>リバーブ Wet</label>
-            <input id="reverbWet" type="range" min="0" max="1" step="0.01" value="0.2">
-            <div class="value" id="reverbWetVal">0.20</div>
-          </div>
-
-          <div class="row">
-            <label>ディレイ Time (s)</label>
-            <input id="delayTime" type="range" min="0" max="1.5" step="0.01" value="0.25">
-            <div class="value" id="delayTimeVal">0.25s</div>
-          </div>
-
-          <div class="row" style="justify-content:flex-end;gap:8px;margin-top:8px">
-            <button id="exportBtn">編集済み音声をダウンロード</button>
-            <a id="downloadLink" style="display:none" class="small" download="processed.wav">ダウンロード準備完了</a>
-          </div>
-        </div>
-
-        <hr style="opacity:0.06;margin-top:12px">
-
-        <div class="small">波形 / スペクトログラム</div>
-        <canvas id="waveCanvas" height="120"></canvas>
-        <canvas id="specCanvas" height="160" style="margin-top:8px"></canvas>
-
-      </div>
-    </div>
+  <div class="controls">
+    <button id="startBtn" disabled>開始</button>
+    <button id="stopBtn" disabled>停止</button>
+    <div class="time">残り時間: <span id="remaining">--:--:--</span></div>
   </div>
 
-  <script src="https://cdn.jsdelivr.net/npm/tone@latest/build/Tone.js"></script>
-  <script>
-    // -- ユーティリティ --
-    const $ = id => document.getElementById(id);
-    function setVal(id, v){ $(id).textContent = v }
+  <div class="notice">
+    ※ ファイルの選択はユーザー操作となるため、ブラウザが自動再生ブロックを回避できます。ファイル長が1時間より長い場合は途中で停止します。  
+  </div>
 
-    // Tone.js context shortcut
-    const ctx = Tone.context.rawContext;
+<script>
+(function(){
+  const fileInput = document.getElementById('fileInput');
+  const playerContainer = document.getElementById('playerContainer');
+  const startBtn = document.getElementById('startBtn');
+  const stopBtn = document.getElementById('stopBtn');
+  const remainingEl = document.getElementById('remaining');
 
-    // Nodes (live)
-    let player = null;
-    const pitchShift = new Tone.PitchShift({pitch:0});
-    const distortion = new Tone.Distortion(0);
-    const compressor = new Tone.Compressor({threshold:-24, ratio:4, attack:0.003, release:0.25});
-    const reverb = new Tone.Reverb({decay:1.5, wet:0.2});
-    const delay = new Tone.FeedbackDelay({delayTime:0.25, feedback:0.35, wet:0.15});
+  let media = null;               // HTMLMediaElement (audio/video)
+  let objectUrl = null;
+  const TOTAL_MS = 3600 * 1000;   // 1時間 = 3600秒
+  let startTime = null;           // Date.now() when started
+  let running = false;
+  let rafId = null;
 
-    // Master gain as native GainNode (so we can export easily and control dB)
-    const masterGain = ctx.createGain();
-    masterGain.gain.value = 1.0; // 0 dB
-    masterGain.connect(ctx.destination);
-
-    // Parametric EQ: native BiquadFilter peaking nodes
-    const b1 = ctx.createBiquadFilter(); b1.type = 'peaking'; b1.frequency.value = 120; b1.Q.value = 1; b1.gain.value = 0;
-    const b2 = ctx.createBiquadFilter(); b2.type = 'peaking'; b2.frequency.value = 1000; b2.Q.value = 1; b2.gain.value = 0;
-    const b3 = ctx.createBiquadFilter(); b3.type = 'peaking'; b3.frequency.value = 6000; b3.Q.value = 1; b3.gain.value = 0;
-
-    // Analyser nodes for visualization
-    const analyserWave = ctx.createAnalyser(); analyserWave.fftSize = 2048;
-    const analyserFFT = ctx.createAnalyser(); analyserFFT.fftSize = 2048;
-
-    // Connect chain placeholder: when player is created we'll connect: player -> pitchShift -> distortion -> compressor -> b1 -> b2 -> b3 -> masterGain
-    // and also compressor -> reverb -> masterGain, compressor -> delay -> masterGain
-
-    // DOM refs
-    const fileIn = $('file');
-    const playBtn = $('play');
-    const stopBtn = $('stop');
-    const loopChk = $('loop');
-    const exportBtn = $('exportBtn');
-    const downloadLink = $('downloadLink');
-
-    // controls
-    const controls = {
-      playbackRate: $('playbackRate'), pitch: $('pitch'), masterVol: $('masterVol'), compThresh: $('compThresh'), distortion: $('distortion'),
-      reverbDecay: $('reverbDecay'), reverbWet: $('reverbWet'), delayTime: $('delayTime'),
-    };
-
-    // parametric controls
-    const b1freq = $('b1freq'), b1q = $('b1q'), b1gain = $('b1gain');
-    const b2freq = $('b2freq'), b2q = $('b2q'), b2gain = $('b2gain');
-    const b3freq = $('b3freq'), b3q = $('b3q'), b3gain = $('b3gain');
-
-    // display init
-    setVal('playbackRateVal', Number(controls.playbackRate.value).toFixed(2) + 'x');
-    setVal('pitchManualVal', controls.pitch.value);
-    setVal('pitchEffectiveVal', 'Effective: 0.00 semitones');
-    setVal('masterVolVal', controls.masterVol.value + ' dB');
-    setVal('compThreshVal', controls.compThresh.value + ' dB');
-    setVal('distortionVal', Math.round(controls.distortion.value*100)+'%');
-    setVal('reverbDecayVal', $('reverbDecay').value+'s');
-    setVal('reverbWetVal', Number($('reverbWet').value).toFixed(2));
-    setVal('delayTimeVal', $('delayTime').value+'s');
-
-    // param displays
-    function initBandDisplays(){
-      setVal('b1freqVal', b1freq.value); setVal('b1qVal', Number(b1q.value).toFixed(1)); setVal('b1gainVal', b1gain.value);
-      setVal('b2freqVal', b2freq.value); setVal('b2qVal', Number(b2q.value).toFixed(1)); setVal('b2gainVal', b2gain.value);
-      setVal('b3freqVal', b3freq.value); setVal('b3qVal', Number(b3q.value).toFixed(1)); setVal('b3gainVal', b3gain.value);
-    }
-    initBandDisplays();
-
-    // compute compensation (semitones) for given playbackRate to preserve original pitch
-    function computeCompensationSemitones(rate){
-      return -12 * (Math.log(rate) / Math.log(2));
-    }
-
-    // update effective pitch: compensation + manual
-    function updateEffectivePitch(){
-      const rate = Number(controls.playbackRate.value);
-      const manual = Number(controls.pitch.value);
-      const comp = computeCompensationSemitones(rate);
-      const effective = comp + manual;
-      pitchShift.pitch = effective; // apply to live pitchShift
-      setVal('pitchManualVal', manual);
-      setVal('pitchEffectiveVal', 'Effective: ' + effective.toFixed(2) + ' semitones (comp ' + comp.toFixed(2) + ')');
-    }
-
-    // control events
-    controls.playbackRate.addEventListener('input', e => {
-      const val = Number(e.target.value);
-      setVal('playbackRateVal', val.toFixed(2) + 'x');
-      if(player) player.playbackRate = val;
-      updateEffectivePitch();
-    });
-    controls.pitch.addEventListener('input', e => { setVal('pitchManualVal', e.target.value); updateEffectivePitch(); });
-
-    controls.masterVol.addEventListener('input', e => { setVal('masterVolVal', e.target.value + ' dB'); masterGain.gain.value = Math.pow(10, Number(e.target.value)/20); });
-    controls.compThresh.addEventListener('input', e => { setVal('compThreshVal', e.target.value+' dB'); compressor.threshold.value = Number(e.target.value); });
-    controls.distortion.addEventListener('input', e => { setVal('distortionVal', Math.round(e.target.value*100)+'%'); distortion.distortion = Number(e.target.value); });
-    $('reverbDecay').addEventListener('input', e => { setVal('reverbDecayVal', e.target.value+'s'); reverb.decay = Number(e.target.value); });
-    $('reverbWet').addEventListener('input', e => { setVal('reverbWetVal', Number(e.target.value).toFixed(2)); reverb.wet.value = Number(e.target.value); });
-    $('delayTime').addEventListener('input', e => { setVal('delayTimeVal', e.target.value+'s'); delay.delayTime.value = Number(e.target.value); });
-
-    // param EQ events
-    function applyParamEQ(){
-      b1.frequency.value = Number(b1freq.value); b1.Q.value = Number(b1q.value); b1.gain.value = Number(b1gain.value);
-      b2.frequency.value = Number(b2freq.value); b2.Q.value = Number(b2q.value); b2.gain.value = Number(b2gain.value);
-      b3.frequency.value = Number(b3freq.value); b3.Q.value = Number(b3q.value); b3.gain.value = Number(b3gain.value);
-      initBandDisplays();
-      drawEQCurve();
-    }
-    [b1freq,b1q,b1gain,b2freq,b2q,b2gain,b3freq,b3q,b3gain].forEach(el => el.addEventListener('input', applyParamEQ));
-
-    // file load
-    fileIn.addEventListener('change', async (ev) => {
-      const file = ev.target.files && ev.target.files[0];
-      if(!file) return;
-      $('filename').textContent = file.name;
-
-      if(player){ try{ player.stop(); player.dispose(); }catch(e){} player = null; }
-
-      const url = URL.createObjectURL(file);
-      player = new Tone.Player({url:url, loop:true, autostart:false});
-
-      // disconnect default and rebuild chain
-      player.disconnect();
-      player.connect(pitchShift);
-      pitchShift.connect(distortion);
-      distortion.connect(compressor);
-
-      // connect compressor -> parametric chain -> masterGain -> destination
-      compressor.connect(b1);
-      b1.connect(b2);
-      b2.connect(b3);
-      b3.connect(masterGain);
-
-      // parallel sends for reverb/delay into masterGain
-      compressor.connect(reverb);
-      compressor.connect(delay);
-      reverb.connect(masterGain);
-      delay.connect(masterGain);
-
-      // analyser taps (tap after b3 so it sees processed signal pre-master)
-      b3.connect(analyserWave);
-      b3.connect(analyserFFT);
-
-      // initial params
-      player.playbackRate = Number(controls.playbackRate.value);
-      player.loop = loopChk.checked;
-      updateEffectivePitch();
-
-      player.onload = () => console.log('Loaded:', file.name);
-    });
-
-    // play / stop
-    playBtn.addEventListener('click', async () => {
-      await Tone.start();
-      if(!player){ alert('まずは音声ファイルを選択してください。'); return; }
-      if(player.state !== 'started'){
-        player.start(0);
-      }
-    });
-    stopBtn.addEventListener('click', ()=>{ if(player && player.state==='started') player.stop(); });
-    loopChk.addEventListener('change', e => { if(player) player.loop = e.target.checked; });
-
-    // ---------------- Visualizers ----------------
-    const waveCanvas = $('waveCanvas'); const waveCtx = waveCanvas.getContext('2d');
-    const specCanvas = $('specCanvas'); const specCtx = specCanvas.getContext('2d');
-    const eqCanvas = $('eqCanvas'); const eqCtx = eqCanvas.getContext('2d');
-
-    function resizeCanvases(){
-      [waveCanvas,specCanvas,eqCanvas].forEach(c=>{
-        const rect = c.getBoundingClientRect();
-        c.width = Math.floor(rect.width * devicePixelRatio);
-        c.height = Math.floor(rect.height * devicePixelRatio);
-        const ctx = c.getContext('2d'); ctx.scale(devicePixelRatio, devicePixelRatio);
-      });
-      // clear spectrogram
-      specCtx.fillStyle = '#030415'; specCtx.fillRect(0,0,specCanvas.width/devicePixelRatio,specCanvas.height/devicePixelRatio);
-    }
-    window.addEventListener('resize', resizeCanvases); resizeCanvases();
-
-    // draw waveform & spectrogram
-    function drawLoop(){
-      requestAnimationFrame(drawLoop);
-      if(!analyserWave) return;
-      // waveform
-      const w = waveCanvas.width/devicePixelRatio, h = waveCanvas.height/devicePixelRatio;
-      const buf = new Uint8Array(analyserWave.fftSize);
-      analyserWave.getByteTimeDomainData(buf);
-      waveCtx.clearRect(0,0,w,h);
-      waveCtx.lineWidth = 1.5; waveCtx.strokeStyle = '#7c3aed';
-      waveCtx.beginPath();
-      const slice = w / buf.length;
-      for(let i=0;i<buf.length;i++){
-        const v = buf[i]/128.0; const y = v * h/2;
-        if(i===0) waveCtx.moveTo(0,y); else waveCtx.lineTo(i*slice,y);
-      }
-      waveCtx.stroke();
-
-      // spectrogram: get frequency data and shift up
-      const fbuf = new Uint8Array(analyserFFT.frequencyBinCount);
-      analyserFFT.getByteFrequencyData(fbuf);
-      const specW = specCanvas.width/devicePixelRatio, specH = specCanvas.height/devicePixelRatio;
-      // shift existing image up by 1 px
-      const image = specCtx.getImageData(0,0,specW,specH-1);
-      specCtx.putImageData(image,0,-1);
-      // draw new row at bottom
-      for(let x=0;x<specW;x++){
-        const idx = Math.floor(x / specW * fbuf.length);
-        const v = fbuf[idx];
-        const brightness = v/255;
-        const color = `rgb(${Math.floor(brightness*220)},${Math.floor(brightness*60)},${Math.floor(brightness*200)})`;
-        specCtx.fillStyle = color;
-        specCtx.fillRect(x,specH-1,1,1);
-      }
-    }
-    drawLoop();
-
-    // ---------------- EQ Curve drawing ----------------
-    function freqToX(freq, width){
-      const minF = 20, maxF = 20000; const logMin = Math.log10(minF), logMax = Math.log10(maxF);
-      const x = (Math.log10(freq) - logMin) / (logMax - logMin) * width; return x;
-    }
-    function drawEQCurve(){
-      const w = eqCanvas.width/devicePixelRatio, h = eqCanvas.height/devicePixelRatio;
-      eqCtx.clearRect(0,0,w,h);
-      // background grid
-      eqCtx.fillStyle = '#050814'; eqCtx.fillRect(0,0,w,h);
-      eqCtx.strokeStyle = '#0f1724'; eqCtx.lineWidth = 1;
-      for(let i=0;i<5;i++){ eqCtx.beginPath(); eqCtx.moveTo(0,(i+1)*h/6); eqCtx.lineTo(w,(i+1)*h/6); eqCtx.stroke(); }
-
-      // sample frequencies and compute total gain using biquad peaking formula approx: we'll simply plot gains from b1,b2,b3 using gaussian approx for visualization
-      const freqs = new Float32Array(w);
-      for(let i=0;i<w;i++){
-        const frac = i / (w-1);
-        const freq = Math.pow(10, Math.log10(20) + frac * (Math.log10(20000)-Math.log10(20)));
-        freqs[i] = freq;
-      }
-      function bandGainAt(b, freq){
-        const f0 = b.frequency.value; const Q = b.Q.value; const gain = b.gain.value;
-        const bw = f0 / Q; const diff = Math.log(freq/f0);
-        const val = gain * Math.exp(- (diff*diff) * 4 / (Math.log(2)*(bw/f0))); // heuristic
-        return val;
-      }
-      eqCtx.beginPath();
-      for(let i=0;i<w;i++){
-        const f = freqs[i];
-        const g = bandGainAt(b1,f) + bandGainAt(b2,f) + bandGainAt(b3,f);
-        const y = h/2 - (g / 48) * h; // center at mid
-        if(i===0) eqCtx.moveTo(i,y); else eqCtx.lineTo(i,y);
-      }
-      eqCtx.strokeStyle = '#7c3aed'; eqCtx.lineWidth = 2; eqCtx.stroke();
-    }
-    drawEQCurve();
-
-    // ---------------- Export (Offline render) ----------------
-    function bufferToWav(buffer, opt){
-      opt = opt || {};
-      var numChannels = buffer.numberOfChannels;
-      var sampleRate = buffer.sampleRate;
-      var format = 1; // PCM
-      var bitDepth = 16;
-
-      var result; var offset = 0; var bufferLength = buffer.length * numChannels * 2 + 44;
-      result = new ArrayBuffer(bufferLength);
-      var view = new DataView(result);
-
-      /* RIFF identifier */ writeString(view, offset, 'RIFF'); offset += 4;
-      /* file length */ view.setUint32(offset, 36 + buffer.length * numChannels * 2, true); offset += 4;
-      /* RIFF type */ writeString(view, offset, 'WAVE'); offset += 4;
-      /* format chunk identifier */ writeString(view, offset, 'fmt '); offset += 4;
-      /* format chunk length */ view.setUint32(offset, 16, true); offset += 4;
-      /* sample format (raw) */ view.setUint16(offset, format, true); offset += 2;
-      /* channel count */ view.setUint16(offset, numChannels, true); offset += 2;
-      /* sample rate */ view.setUint32(offset, sampleRate, true); offset += 4;
-      /* byte rate (sample rate * block align) */ view.setUint32(offset, sampleRate * numChannels * bitDepth/8, true); offset += 4;
-      /* block align (channel count * bytes per sample) */ view.setUint16(offset, numChannels * bitDepth/8, true); offset += 2;
-      /* bits per sample */ view.setUint16(offset, bitDepth, true); offset += 2;
-      /* data chunk identifier */ writeString(view, offset, 'data'); offset += 4;
-      /* data chunk length */ view.setUint32(offset, buffer.length * numChannels * bitDepth/8, true); offset += 4;
-
-      // write interleaved data
-      var channels = [];
-      for (var i = 0; i < numChannels; i++) channels.push(buffer.getChannelData(i));
-      var index = 0;
-      var volume = 1;
-      while (index < buffer.length){
-        for (var i = 0; i < numChannels; i++){
-          var sample = Math.max(-1, Math.min(1, channels[i][index] * volume));
-          view.setInt16(offset, sample < 0 ? sample * 0x8000 : sample * 0x7FFF, true);
-          offset += 2;
-        }
-        index++;
-      }
-
-      return new Blob([view], { type: 'audio/wav' });
-    }
-    function writeString(view, offset, string){ for (var i = 0; i < string.length; i++){ view.setUint8(offset + i, string.charCodeAt(i)); } }
-
-exportBtn.addEventListener('click', async () => {
-  if (!player || !player.buffer) {
-    alert('まず音声ファイルを読み込んでください。');
-    return;
+  function formatTime(ms) {
+    if (ms < 0) ms = 0;
+    const s = Math.floor(ms / 1000);
+    const hh = String(Math.floor(s / 3600)).padStart(2, '0');
+    const mm = String(Math.floor((s % 3600) / 60)).padStart(2, '0');
+    const ss = String(s % 60).padStart(2, '0');
+    return `${hh}:${mm}:${ss}`;
   }
-  exportBtn.disabled = true;
-  exportBtn.textContent = 'レンダリング中...';
 
-  const duration = player.buffer.duration;
-  try {
-    // 有効ピッチ計算
-    const playbackRateVal = Number(controls.playbackRate.value);
-    const manualPitch = Number(controls.pitch.value);
-    const comp = computeCompensationSemitones(playbackRateVal);
-    const effectivePitch = comp + manualPitch;
+  function updateRemaining() {
+    if (!running || startTime === null) return;
+    const elapsed = Date.now() - startTime;
+    const remaining = TOTAL_MS - elapsed;
+    remainingEl.textContent = formatTime(remaining);
+    if (remaining <= 0) {
+      // 終了
+      stopPlayback();
+      return;
+    }
+    rafId = requestAnimationFrame(updateRemaining);
+  }
 
-    const rendered = await Tone.Offline(async ({ context }) => {
-      // オフライン用Player
-      const p = new Tone.Player(player.buffer).toDestination();
-      p.playbackRate = playbackRateVal;
-      p.loop = false;
+  function beginPlayback() {
+    if (!media) return;
+    // if media already playing, do nothing except set running
+    startTime = startTime ?? Date.now(); // if already started, keep original startTime
+    running = true;
+    startBtn.disabled = true;
+    stopBtn.disabled = false;
+    media.play().catch((e) => {
+      // ブラウザが再生をブロックする可能性
+      console.warn('Play failed:', e);
+    });
+    if (!rafId) updateRemaining();
+  }
 
-      // エフェクトノード（値のみで初期化）
-      const ps = new Tone.PitchShift({ pitch: effectivePitch });
-      const dist = new Tone.Distortion(Number(controls.distortion.value));
-      const compNode = new Tone.Compressor({
-        threshold: Number(controls.compThresh.value),
-        ratio: compressor.ratio.value,
-        attack: compressor.attack.value,
-        release: compressor.release.value
-      });
-      const rv = new Tone.Reverb({
-        decay: Number(controls.reverbDecay.value),
-        wet: Number(controls.reverbWet.value)
-      });
-      const dl = new Tone.FeedbackDelay({
-        delayTime: Number(controls.delayTime.value),
-        feedback: delay.feedback.value,
-        wet: delay.wet.value
-      });
+  function stopPlayback() {
+    running = false;
+    if (media) {
+      try { media.pause(); } catch(e){}
+    }
+    startBtn.disabled = false;
+    stopBtn.disabled = true;
+    startTime = null;
+    remainingEl.textContent = formatTime(0);
+    if (rafId) { cancelAnimationFrame(rafId); rafId = null; }
+  }
 
-      // マスターゲイン
-      const offlineCtx = context.rawContext;
-      const masterGain = offlineCtx.createGain();
-      masterGain.gain.value = Math.pow(10, Number(controls.masterVol.value) / 20);
-      masterGain.connect(offlineCtx.destination);
+  function cleanupMedia() {
+    if (media) {
+      media.removeEventListener('ended', onEnded);
+      try { media.pause(); } catch(e){}
+      playerContainer.innerHTML = '';
+      media = null;
+    }
+    if (objectUrl) {
+      URL.revokeObjectURL(objectUrl);
+      objectUrl = null;
+    }
+    stopPlayback();
+  }
 
-      // EQ Biquad
-      const ob1 = offlineCtx.createBiquadFilter();
-      ob1.type = 'peaking';
-      ob1.frequency.value = Number(b1freq.value);
-      ob1.Q.value = Number(b1q.value);
-      ob1.gain.value = Number(b1gain.value);
-
-      const ob2 = offlineCtx.createBiquadFilter();
-      ob2.type = 'peaking';
-      ob2.frequency.value = Number(b2freq.value);
-      ob2.Q.value = Number(b2q.value);
-      ob2.gain.value = Number(b2gain.value);
-
-      const ob3 = offlineCtx.createBiquadFilter();
-      ob3.type = 'peaking';
-      ob3.frequency.value = Number(b3freq.value);
-      ob3.Q.value = Number(b3q.value);
-      ob3.gain.value = Number(b3gain.value);
-
-      // チェーン構築: p -> ps -> dist -> compNode -> ob1 -> ob2 -> ob3 -> masterGain
-      p.disconnect();
-      p.connect(ps);
-      ps.connect(dist);
-      dist.connect(compNode);
-
-      compNode.connect(ob1);
-      ob1.connect(ob2);
-      ob2.connect(ob3);
-      ob3.connect(masterGain);
-
-      // パラレルでリバーブ・ディレイ
-      compNode.connect(rv);
-      rv.connect(masterGain);
-      compNode.connect(dl);
-      dl.connect(masterGain);
-
-      // 再生開始
-      p.start(0);
-    }, duration);
-
-    // AudioBuffer→WAV変換・ダウンロードリンク生成
-    let audioBuffer = rendered instanceof AudioBuffer ? rendered : (rendered && rendered.get ? rendered.get() : rendered);
-    if (!audioBuffer) {
-      console.error('レンダリング結果が見つかりません');
-      alert('レンダリングに失敗しました');
+  function onEnded() {
+    // 再生が終わった → まだ1時間経っていなければ先頭に戻して再生
+    if (!running || startTime === null) return;
+    const elapsed = Date.now() - startTime;
+    if (elapsed < TOTAL_MS) {
+      try {
+        media.currentTime = 0;
+        media.play().catch((e)=>{console.warn('loop play failed', e);});
+      } catch(e) {
+        // 一部形式や環境で currentTime 書き換えが禁止される可能性
+        console.warn('reloop error', e);
+      }
     } else {
-      const blob = bufferToWav(audioBuffer);
-      const url = URL.createObjectURL(blob);
-      downloadLink.href = url;
-      downloadLink.style.display = 'inline';
-      downloadLink.textContent = 'ダウンロード';
-      downloadLink.download = 'processed.wav';
-      downloadLink.click();
+      stopPlayback();
     }
-  } catch (err) {
-    console.error(err);
-    alert('レンダリング中にエラーが発生しました');
   }
-  exportBtn.disabled = false;
-  exportBtn.textContent = '編集済み音声をダウンロード';
-});
 
-    // initial draw
-    drawEQCurve();
+  fileInput.addEventListener('change', (ev) => {
+    cleanupMedia();
+    const f = ev.target.files && ev.target.files[0];
+    if (!f) return;
+    objectUrl = URL.createObjectURL(f);
 
-    // when page unloaded, revoke object urls
-    window.addEventListener('unload', ()=>{ try{ if(player && player.buffer && player.buffer._buffer) URL.revokeObjectURL(player.buffer._buffer); }catch(e){} });
-  </script>
+    // audio か video を判定。タイプが空なら拡張子から推測。
+    const t = f.type || '';
+    const isVideo = t.startsWith('video') || /\.(mp4|webm|ogg|mov|mkv)$/i.test(f.name);
+    if (isVideo) {
+      media = document.createElement('video');
+      media.width = 640;
+      media.height = 360;
+      media.controls = true;
+      media.playsInline = true;
+    } else {
+      media = document.createElement('audio');
+      media.controls = true;
+    }
+    media.src = objectUrl;
+    media.preload = 'auto';
+    media.style.maxWidth = '100%';
+    media.addEventListener('ended', onEnded);
+    playerContainer.appendChild(media);
+
+    // 初期状態: 開始ボタンを有効にしておく（ファイル選択はユーザー操作なので再生可能なことが多い）
+    startBtn.disabled = false;
+    stopBtn.disabled = true;
+    remainingEl.textContent = formatTime(TOTAL_MS);
+    // 自動で開始したければ以下を有効に（ただしブラウザ自動再生制限に注意）
+    // startPlayback();
+  });
+
+  startBtn.addEventListener('click', () => {
+    if (!media) return;
+    // 新しく開始する場合は startTime を現在にリセット
+    startTime = Date.now();
+    running = true;
+    startBtn.disabled = true;
+    stopBtn.disabled = false;
+    // すでにファイルが最後まである場合や長い場合も、1時間ループのために ended イベントで判断する
+    media.currentTime = 0;
+    media.play().catch((e) => console.warn('play error', e));
+    if (!rafId) updateRemaining();
+  });
+
+  stopBtn.addEventListener('click', () => {
+    stopPlayback();
+  });
+
+  // ウィンドウを閉じる／リロード時にオブジェクトURL解放
+  window.addEventListener('beforeunload', cleanupMedia);
+
+})();
+</script>
 </body>
 </html>
