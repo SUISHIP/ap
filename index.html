@@ -235,12 +235,12 @@
 
         <!-- 4.5. ✨ Gemini AI アシスタント -->
         <div class="space-y-4 border-b pb-6">
-            <h2 class="text-xl font-semibold text-gray-800">AI エフェクト アシスタント</h2>
+            <h2 class="text-xl font-semibold text-gray-800">✨ AI エフェクト アシスタント</h2>
             <div class="p-4 bg-gradient-to-br from-blue-50 to-purple-50 rounded-lg shadow-inner space-y-3">
                 <label for="ai-prompt" class="block text-sm font-medium text-gray-700">どのようなサウンドにしたいですか？</label>
                 <textarea id="ai-prompt" rows="2" class="w-full p-2 rounded-md border border-gray-300 focus:ring-blue-500 focus:border-blue-500" placeholder="例: ポッドキャスト風, ボーカルをクリアに, AMラジオ風のサウンド"></textarea>
                 <button id="ai-generate-btn" class="w-full bg-gradient-to-r from-blue-500 to-purple-600 hover:from-blue-600 hover:to-purple-700 text-white font-bold py-3 px-4 rounded-lg shadow-md transition duration-200">
-                    設定を生成
+                    ✨ 設定を生成
                 </button>
                 <div id="ai-response-area" class="mt-3 p-3 bg-white rounded-md border border-gray-200 min-h-[50px] text-sm text-gray-700">
                     <p id="ai-status" class="text-gray-500">ここにAIからの提案が表示されます。</p>
@@ -303,9 +303,14 @@
             { el: document.getElementById('eq1'), freq: 60, valEl: document.getElementById('eq1-value') },
             { el: document.getElementById('eq2'), freq: 250, valEl: document.getElementById('eq2-value') },
             { el: document.getElementById('eq3'), freq: 1000, valEl: document.getElementById('eq3-value') },
-            { el: document.getElementById('eq4'), freq: 4000, valEl: document.getElementById('eq4-4hz-value') },
+            { el: document.getElementById('eq4'), freq: 4000, valEl: document.getElementById('eq4-value') },
             { el: document.getElementById('eq5'), freq: 10000, valEl: document.getElementById('eq5-value') }
         ];
+
+        if (!document.getElementById('eq4-value')) {
+             eqSliders[3].valEl = document.getElementById('eq4-4hz-value') || document.getElementById('eq4-value');
+        }
+
 
         const waveformCanvas = document.getElementById('waveform-canvas');
         const waveformCtx = waveformCanvas.getContext('2d');
@@ -339,13 +344,13 @@
         function initializeAudioNodes() {
             if (isInitialized) return;
 
-            masterGain = new Tone.Gain({ gain: gainSlider.value, units: 'decibels' }).toDestination();
+            masterGain = new Tone.Gain({ gain: parseFloat(gainSlider.value), units: 'decibels' }).toDestination();
             analyserWave = new Tone.Analyser('waveform', 1024);
             analyserFft = new Tone.Analyser('fft', 256);
             reverb = new Tone.Reverb({
                 decay: parseFloat(reverbDecay.value),
                 wet: parseFloat(reverbWet.value)
-            });
+            }).toDestination();
             compressor = new Tone.Compressor({
                 threshold: parseFloat(compThreshold.value),
                 ratio: parseFloat(compRatio.value)
@@ -363,14 +368,15 @@
 
             distortion = new Tone.Distortion(parseFloat(distAmount.value));
             
-            // 接続チェーン: Player -> Distortion -> Compressor -> EQs -> Reverb -> Analysers -> MasterGain -> Destination
+            // 接続チェーン
             distortion.connect(compressor);
             compressor.chain(...eqFilters);
             eqFilters[eqFilters.length - 1].connect(reverb);
             reverb.connect(analyserWave);
             analyserWave.connect(analyserFft);
             analyserFft.connect(masterGain);
-            
+            masterGain.connect(Tone.Destination);
+
             // アナライザの描画ループ開始
             setupCanvas(waveformCanvas, waveformCtx);
             setupCanvas(fftCanvas, fftCtx);
@@ -395,7 +401,7 @@
                 player.dispose(); // 古いプレイヤーを破棄
             }
 
-            // 新しいファイルを読み込む前にTransportを停止・リセット
+            // Transportを停止・リセット
             if (isInitialized) {
                 Tone.Transport.stop();
                 Tone.Transport.position = 0;
@@ -406,7 +412,6 @@
             const url = URL.createObjectURL(file);
             
             try {
-                // AudioContextの開始 (iOS対応)
                 await Tone.start();
                 initializeAudioNodes();
 
@@ -425,6 +430,17 @@
                         Tone.Transport.loopStart = 0;
                         Tone.Transport.loop = player.loop; // playerのloop設定と同期
                     }
+                    
+                    // --- 修正: 初期ピッチ/レート設定の適用 ---
+                    // ファイルロード時に、スライダーの現在の値を強制的に適用し、連動ロジックを開始させる
+                    const initialRate = parseFloat(rateSlider.value);
+                    const initialUserPitch = parseFloat(pitchSlider.value);
+                    // 速度によるピッチ変化を打ち消すための補正 (rate=1.0のとき補正は0になる)
+                    const initialCorrection = 1200 * Math.log2(1 / initialRate); 
+
+                    player.playbackRate = initialRate;
+                    player.detune = initialUserPitch + initialCorrection;
+                    // --- ------------------------------------ ---
 
                     // Transportに同期して再生（Transportはまだ開始していない）
                     player.sync().start(0);
@@ -432,7 +448,6 @@
                 
                 // 再生終了時の処理 (Transport連携)
                 player.onstop = () => {
-                    // Transportが再生中 且つ ループではない場合にファイル終端に達した時
                     if (Tone.Transport.state === 'started' && !player.loop) {
                          Tone.Transport.stop();
                          Tone.Transport.position = 0;
@@ -450,12 +465,9 @@
         // 再生・一時停止
         playPauseBtn.addEventListener('click', async () => {
             if (!audioReady) return;
-
-            // iOS対応: ユーザー操作時にAudioContextを開始
             await Tone.start();
             initializeAudioNodes();
 
-            // player.pause() の代わりに Tone.Transport を制御する
             if (Tone.Transport.state === 'started') {
                 Tone.Transport.pause();
                 isPlaying = false;
@@ -470,9 +482,8 @@
         // 停止
         stopBtn.addEventListener('click', () => {
             if (!audioReady) return;
-            // player.stop() の代わりに Tone.Transport を制御する
             Tone.Transport.stop();
-            Tone.Transport.position = 0; // 再生位置をリセット
+            Tone.Transport.position = 0; 
             isPlaying = false;
             playPauseBtn.textContent = '再生';
         });
@@ -481,7 +492,6 @@
         loopToggle.addEventListener('change', (e) => {
             if (player) {
                 player.loop = e.target.checked;
-                // Transportのループ設定も同期させる
                 if (isInitialized) {
                     Tone.Transport.loop = e.target.checked;
                     if (player.buffer) {
@@ -512,7 +522,6 @@
 
             stopTimer = setTimeout(() => {
                 if (isPlaying) {
-                    // 停止処理もTransport経由
                     Tone.Transport.stop();
                     Tone.Transport.position = 0;
                     isPlaying = false;
@@ -539,11 +548,10 @@
             const rate = parseFloat(e.target.value);
             rateValue.textContent = rate.toFixed(2);
             if (player) {
-                // 再生速度の変更
+                // 1. 再生速度の変更
                 player.playbackRate = rate;
 
-                // ピッチ補正 (速度変更に伴うピッチ変化を打ち消す)
-                // pitchSliderの値 (ユーザー設定) に、速度補正値 (rateに応じたdetune) を加算
+                // 2. ピッチ補正: 速度を変えてもピッチスライダーの値（userPitch）を維持する
                 const speedCorrection = 1200 * Math.log2(1 / rate);
                 const userPitch = parseFloat(pitchSlider.value);
                 player.detune = userPitch + speedCorrection;
@@ -555,9 +563,10 @@
             const userPitch = parseFloat(e.target.value);
             pitchValue.textContent = userPitch.toFixed(0);
             if (player) {
-                // ピッチ補正 (速度変更に伴うピッチ変化を打ち消す) を再計算して加算
+                // ピッチ補正を再計算して加算
                 const rate = parseFloat(rateSlider.value);
                 const speedCorrection = 1200 * Math.log2(1 / rate);
+                // 最終ピッチ = ユーザーが設定したピッチ + 速度変化を打ち消すための逆補正
                 player.detune = userPitch + speedCorrection;
             }
         });
@@ -614,8 +623,8 @@
             aiGenerateBtn.disabled = true;
             aiApplyBtn.disabled = true;
 
-            const apiKey = ""; // APIキーはCanvas環境によって自動的に提供されます
-            const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-09-2025:generateContent?key=${apiKey}`;
+            const apiKey = "AIzaSyAGYKJmlW7YOA5ddTKyMMhxYNhlrjaRl6M";
+            const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-09-2025:generateContent`;
 
             const systemPrompt = `あなたはプロのオーディオエンジニアです。
 ユーザーの要望に沿ったエフェクト設定を提案してください。
@@ -673,38 +682,50 @@
                 }
             };
 
-            try {
-                const response = await fetch(apiUrl, {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify(payload)
-                });
+            // リトライ処理（Exponential Backoff）
+            const MAX_RETRIES = 3;
+            for (let i = 0; i < MAX_RETRIES; i++) {
+                try {
+                    const response = await fetch(apiUrl, {
+                        method: 'POST',
+                        // 外部で実行する場合は、APIキーをクエリパラメータに追加する必要があります。
+                        // 例: const response = await fetch(`${apiUrl}?key=${apiKey}`, { ...
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify(payload)
+                    });
 
-                if (!response.ok) {
-                    throw new Error(`API error: ${response.statusText}`);
-                }
+                    if (!response.ok) {
+                        // 403などのエラーの場合、リトライするかエラーをスロー
+                        if (i < MAX_RETRIES - 1) {
+                            await new Promise(resolve => setTimeout(resolve, Math.pow(2, i) * 1000));
+                            continue;
+                        }
+                        throw new Error(`API error: ${response.status} ${response.statusText}`);
+                    }
 
-                const result = await response.json();
-                
-                if (result.candidates && result.candidates[0].content?.parts?.[0]?.text) {
-                    const jsonText = result.candidates[0].content.parts[0].text;
-                    const parsedJson = JSON.parse(jsonText);
+                    const result = await response.json();
                     
-                    // レスポンスを処理
-                    aiStatus.textContent = parsedJson.description || "AIからの提案:";
-                    currentAiSettings = parsedJson.settings;
-                    aiApplyBtn.disabled = false;
-
-                } else {
-                    throw new Error("AIからの有効なレスポンスがありませんでした。");
+                    if (result.candidates && result.candidates[0].content?.parts?.[0]?.text) {
+                        const jsonText = result.candidates[0].content.parts[0].text;
+                        const parsedJson = JSON.parse(jsonText);
+                        
+                        // レスポンスを処理
+                        aiStatus.textContent = parsedJson.description || "AIからの提案:";
+                        currentAiSettings = parsedJson.settings;
+                        aiApplyBtn.disabled = false;
+                        return; // 成功したらループを抜ける
+                    } else {
+                        throw new Error("AIからの有効なレスポンスがありませんでした。");
+                    }
+                } catch (error) {
+                    if (i === MAX_RETRIES - 1) {
+                        throw error;
+                    }
+                    await new Promise(resolve => setTimeout(resolve, Math.pow(2, i) * 1000));
                 }
-
-            } catch (error) {
-                console.error("Gemini API Error:", error);
-                aiStatus.textContent = `エラーが発生しました: ${error.message}`;
-            } finally {
-                aiGenerateBtn.disabled = false;
             }
+
+
         }
 
         // AI設定をスライダーに適用する
@@ -720,6 +741,7 @@
                     // 値が最小・最大を超えないように丸める
                     const min = parseFloat(slider.min);
                     const max = parseFloat(slider.max);
+                    // Tone.jsのロジックがイベントリスナーで処理されるように、値を設定してからイベントを発火させる
                     slider.value = Math.max(min, Math.min(max, value));
                     slider.dispatchEvent(inputEvent);
                 }
@@ -750,7 +772,13 @@
         aiGenerateBtn.addEventListener('click', () => {
             const prompt = aiPrompt.value;
             if (prompt.trim()) {
-                callGeminiApi(prompt);
+                aiStatus.textContent = ''; 
+                callGeminiApi(prompt).catch(error => {
+                    aiStatus.textContent = `エラー: AIとの通信に失敗しました。認証情報をご確認ください。（${error.message}）`;
+                    aiGenerateBtn.disabled = false;
+                    aiApplyBtn.disabled = true;
+                    console.error("AI Generation Error:", error);
+                });
             } else {
                 aiStatus.textContent = "テキストボックスに要望を入力してください。";
             }
