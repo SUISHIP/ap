@@ -233,6 +233,25 @@
             </div>
         </div>
 
+        <!-- 4.5. ✨ Gemini AI アシスタント -->
+        <div class="space-y-4 border-b pb-6">
+            <h2 class="text-xl font-semibold text-gray-800">AI エフェクト アシスタント</h2>
+            <div class="p-4 bg-gradient-to-br from-blue-50 to-purple-50 rounded-lg shadow-inner space-y-3">
+                <label for="ai-prompt" class="block text-sm font-medium text-gray-700">どのようなサウンドにしたいですか？</label>
+                <textarea id="ai-prompt" rows="2" class="w-full p-2 rounded-md border border-gray-300 focus:ring-blue-500 focus:border-blue-500" placeholder="例: ポッドキャスト風, ボーカルをクリアに, AMラジオ風のサウンド"></textarea>
+                <button id="ai-generate-btn" class="w-full bg-gradient-to-r from-blue-500 to-purple-600 hover:from-blue-600 hover:to-purple-700 text-white font-bold py-3 px-4 rounded-lg shadow-md transition duration-200">
+                    設定を生成
+                </button>
+                <div id="ai-response-area" class="mt-3 p-3 bg-white rounded-md border border-gray-200 min-h-[50px] text-sm text-gray-700">
+                    <p id="ai-status" class="text-gray-500">ここにAIからの提案が表示されます。</p>
+                </div>
+                <button id="ai-apply-btn" class="w-full bg-green-500 hover:bg-green-600 text-white font-bold py-2 px-4 rounded-lg shadow-md transition duration-200 disabled:opacity-50 disabled:cursor-not-allowed" disabled>
+                    設定を適用
+                </button>
+            </div>
+        </div>
+
+
         <!-- 5. ビジュアルアナライザ -->
         <div>
             <h2 class="text-xl font-semibold text-gray-800 mb-4">ビジュアルアナライザ</h2>
@@ -250,18 +269,17 @@
 
     </div>
 
-    <script type(="module")>
+    <script type="module">
         // DOM要素の取得
         const fileInput = document.getElementById('file-input');
         const loadingStatus = document.getElementById('loading-status');
         const playPauseBtn = document.getElementById('play-pause-btn');
         const stopBtn = document.getElementById('stop-btn');
         const loopToggle = document.getElementById('loop-toggle');
-        
         const timerInput = document.getElementById('timer-input');
         const timerBtn = document.getElementById('timer-btn');
         const timerStatus = document.getElementById('timer-status');
-        
+
         const gainSlider = document.getElementById('gain-slider');
         const gainValue = document.getElementById('gain-value');
         const rateSlider = document.getElementById('rate-slider');
@@ -273,27 +291,34 @@
         const compThresholdValue = document.getElementById('comp-threshold-value');
         const compRatio = document.getElementById('comp-ratio');
         const compRatioValue = document.getElementById('comp-ratio-value');
-
         const distAmount = document.getElementById('dist-amount');
         const distAmountValue = document.getElementById('dist-amount-value');
-
-        const eqSliders = [
-            { el: document.getElementById('eq1'), valEl: document.getElementById('eq1-value'), freq: 60 },
-            { el: document.getElementById('eq2'), valEl: document.getElementById('eq2-value'), freq: 250 },
-            { el: document.getElementById('eq3'), valEl: document.getElementById('eq3-value'), freq: 1000 },
-            { el: document.getElementById('eq4'), valEl: document.getElementById('eq4-value'), freq: 4000 },
-            { el: document.getElementById('eq5'), valEl: document.getElementById('eq5-value'), freq: 10000 }
-        ];
 
         const reverbDecay = document.getElementById('reverb-decay');
         const reverbDecayValue = document.getElementById('reverb-decay-value');
         const reverbWet = document.getElementById('reverb-wet');
         const reverbWetValue = document.getElementById('reverb-wet-value');
 
+        const eqSliders = [
+            { el: document.getElementById('eq1'), freq: 60, valEl: document.getElementById('eq1-value') },
+            { el: document.getElementById('eq2'), freq: 250, valEl: document.getElementById('eq2-value') },
+            { el: document.getElementById('eq3'), freq: 1000, valEl: document.getElementById('eq3-value') },
+            { el: document.getElementById('eq4'), freq: 4000, valEl: document.getElementById('eq4-4hz-value') },
+            { el: document.getElementById('eq5'), freq: 10000, valEl: document.getElementById('eq5-value') }
+        ];
+
         const waveformCanvas = document.getElementById('waveform-canvas');
         const waveformCtx = waveformCanvas.getContext('2d');
         const fftCanvas = document.getElementById('fft-canvas');
         const fftCtx = fftCanvas.getContext('2d');
+
+        // AIアシスタントDOM
+        const aiPrompt = document.getElementById('ai-prompt');
+        const aiGenerateBtn = document.getElementById('ai-generate-btn');
+        const aiResponseArea = document.getElementById('ai-response-area');
+        const aiStatus = document.getElementById('ai-status');
+        const aiApplyBtn = document.getElementById('ai-apply-btn');
+
 
         // Tone.jsのセットアップ
         let player, masterGain, compressor, distortion, eqFilters, reverb, analyserWave, analyserFft;
@@ -301,24 +326,16 @@
         let isInitialized = false;
         let audioReady = false;
         let stopTimer = null;
+        let currentAiSettings = null; // AIが生成した設定を保持
 
         // アナライザのキャンバスサイズ設定
         function setupCanvas(canvas, ctx) {
-            const dpr = window.devicePixelRatio || 1;
-            const rect = canvas.getBoundingClientRect();
-            canvas.width = rect.width * dpr;
-            canvas.height = rect.height * dpr;
-            ctx.scale(dpr, dpr);
-            canvas.style.width = `${rect.width}px`;
-            canvas.style.height = `${rect.height}px`;
+            const container = canvas.parentElement;
+            canvas.width = container.clientWidth;
+            canvas.height = canvas.offsetHeight;
         }
 
-        window.addEventListener('resize', () => {
-            setupCanvas(waveformCanvas, waveformCtx);
-            setupCanvas(fftCanvas, fftCtx);
-        });
-
-        // オーディオノードの初期化
+        // オーディオノードの初期化と接続
         function initializeAudioNodes() {
             if (isInitialized) return;
 
@@ -329,8 +346,12 @@
                 decay: parseFloat(reverbDecay.value),
                 wet: parseFloat(reverbWet.value)
             });
+            compressor = new Tone.Compressor({
+                threshold: parseFloat(compThreshold.value),
+                ratio: parseFloat(compRatio.value)
+            });
             
-            // EQフィルタ (Peaking)
+            // 5バンドEQ (フィルター) の作成
             eqFilters = eqSliders.map(eq => {
                 return new Tone.Filter({
                     type: 'peaking',
@@ -341,37 +362,15 @@
             });
 
             distortion = new Tone.Distortion(parseFloat(distAmount.value));
-            compressor = new Tone.Compressor({
-                threshold: parseFloat(compThreshold.value),
-                ratio: parseFloat(compRatio.value)
-            });
-
-            // エフェクトチェーンの接続
-            // Playerはファイルロード時に作成・接続
             
-            // Player -> Compressor -> Distortion -> EQ (Chain) -> Reverb -> MasterGain -> Analysers -> Destination
-            Tone.connect(compressor, distortion);
+            // 接続チェーン: Player -> Distortion -> Compressor -> EQs -> Reverb -> Analysers -> MasterGain -> Destination
+            distortion.connect(compressor);
+            compressor.chain(...eqFilters);
+            eqFilters[eqFilters.length - 1].connect(reverb);
+            reverb.connect(analyserWave);
+            analyserWave.connect(analyserFft);
+            analyserFft.connect(masterGain);
             
-            // EQフィルターをチェーン接続
-            for (let i = 0; i < eqFilters.length - 1; i++) {
-                Tone.connect(eqFilters[i], eqFilters[i + 1]);
-            }
-            
-            // Distortion -> EQチェーンの最初
-            Tone.connect(distortion, eqFilters[0]);
-            
-            // EQチェーンの最後 -> Reverb
-            Tone.connect(eqFilters[eqFilters.length - 1], reverb);
-            
-            // Reverb -> MasterGain
-            Tone.connect(reverb, masterGain);
-            
-            // MasterGainからアナライザへ (並列)
-            Tone.connect(masterGain, analyserWave);
-            Tone.connect(masterGain, analyserFft);
-            
-            // MasterGainは既にDestinationに接続済み
-
             // アナライザの描画ループ開始
             setupCanvas(waveformCanvas, waveformCtx);
             setupCanvas(fftCanvas, fftCtx);
@@ -385,30 +384,32 @@
             const file = e.target.files[0];
             if (!file) return;
 
-            // iOSのためにTone.start()を試みる
-            if (Tone.context.state !== 'running') {
-                await Tone.start();
-                console.log('AudioContext started by file input');
-            }
-            
-            // オーディオノードがまだなら初期化
-            if (!isInitialized) {
-                initializeAudioNodes();
-            }
-
-            loadingStatus.textContent = 'ファイルを読み込み中...';
+            loadingStatus.textContent = '読み込み中...';
             playPauseBtn.disabled = true;
             stopBtn.disabled = true;
             audioReady = false;
-            
+
             if (player) {
                 player.stop();
+                player.unsync(); // Transportとの同期を解除
                 player.dispose(); // 古いプレイヤーを破棄
+            }
+
+            // 新しいファイルを読み込む前にTransportを停止・リセット
+            if (isInitialized) {
+                Tone.Transport.stop();
+                Tone.Transport.position = 0;
+                isPlaying = false;
+                playPauseBtn.textContent = '再生';
             }
 
             const url = URL.createObjectURL(file);
             
             try {
+                // AudioContextの開始 (iOS対応)
+                await Tone.start();
+                initializeAudioNodes();
+
                 player = new Tone.Player(url, () => {
                     // 読み込み完了コールバック
                     loadingStatus.textContent = `読み込み完了: ${file.name}`;
@@ -416,20 +417,33 @@
                     stopBtn.disabled = false;
                     audioReady = true;
                     // プレイヤーをエフェクトチェーンの先頭に接続
-                    player.connect(compressor);
+                    player.connect(distortion);
+
+                    // Transportのループ設定
+                    if (isInitialized) {
+                        Tone.Transport.loopEnd = player.buffer.duration;
+                        Tone.Transport.loopStart = 0;
+                        Tone.Transport.loop = player.loop; // playerのloop設定と同期
+                    }
+
+                    // Transportに同期して再生（Transportはまだ開始していない）
+                    player.sync().start(0);
                 });
                 
-                // 再生終了時の処理
+                // 再生終了時の処理 (Transport連携)
                 player.onstop = () => {
-                    if (audioReady) { // ユーザーによる停止の場合のみ
-                        isPlaying = false;
-                        playPauseBtn.textContent = '再生';
+                    // Transportが再生中 且つ ループではない場合にファイル終端に達した時
+                    if (Tone.Transport.state === 'started' && !player.loop) {
+                         Tone.Transport.stop();
+                         Tone.Transport.position = 0;
+                         isPlaying = false;
+                         playPauseBtn.textContent = '再生';
                     }
                 };
                 
             } catch (error) {
-                loadingStatus.textContent = 'エラー: ファイルを読み込めません。';
-                console.error(error);
+                loadingStatus.textContent = `エラー: ファイルの読み込みに失敗しました (${error.message})`;
+                console.error("Audio Load Error:", error);
             }
         });
 
@@ -438,21 +452,16 @@
             if (!audioReady) return;
 
             // iOS対応: ユーザー操作時にAudioContextを開始
-            if (Tone.context.state !== 'running') {
-                await Tone.start();
-                console.log('AudioContext started by play button');
-            }
-            
-            if (!isInitialized) {
-                initializeAudioNodes();
-            }
+            await Tone.start();
+            initializeAudioNodes();
 
-            if (isPlaying) {
-                player.pause();
+            // player.pause() の代わりに Tone.Transport を制御する
+            if (Tone.Transport.state === 'started') {
+                Tone.Transport.pause();
                 isPlaying = false;
                 playPauseBtn.textContent = '再生';
             } else {
-                player.start();
+                Tone.Transport.start();
                 isPlaying = true;
                 playPauseBtn.textContent = '一時停止';
             }
@@ -461,7 +470,9 @@
         // 停止
         stopBtn.addEventListener('click', () => {
             if (!audioReady) return;
-            player.stop();
+            // player.stop() の代わりに Tone.Transport を制御する
+            Tone.Transport.stop();
+            Tone.Transport.position = 0; // 再生位置をリセット
             isPlaying = false;
             playPauseBtn.textContent = '再生';
         });
@@ -470,107 +481,114 @@
         loopToggle.addEventListener('change', (e) => {
             if (player) {
                 player.loop = e.target.checked;
+                // Transportのループ設定も同期させる
+                if (isInitialized) {
+                    Tone.Transport.loop = e.target.checked;
+                    if (player.buffer) {
+                        Tone.Transport.loopEnd = player.buffer.duration;
+                    }
+                }
             }
         });
 
         // オフタイマー
         timerBtn.addEventListener('click', () => {
-            const minutes = parseFloat(timerInput.value);
-            if (isNaN(minutes) || minutes <= 0) {
-                timerStatus.textContent = '無効な時間です';
+            if (stopTimer) {
+                clearTimeout(stopTimer);
+                stopTimer = null;
+                timerStatus.textContent = 'タイマーをキャンセルしました。';
                 return;
             }
 
-            if (stopTimer) {
-                clearTimeout(stopTimer);
-                timerStatus.textContent = 'タイマーをキャンセルしました';
-                stopTimer = null;
-                timerBtn.textContent = 'タイマー';
-            } else {
-                const ms = minutes * 60 * 1000;
-                stopTimer = setTimeout(() => {
-                    if (player && isPlaying) {
-                        player.stop();
-                    }
-                    timerStatus.textContent = 'タイマー終了';
-                    stopTimer = null;
-                    timerBtn.textContent = 'タイマー';
-                }, ms);
-                timerStatus.textContent = `${minutes}分後に停止します`;
-                timerBtn.textContent = 'キャンセル';
+            const minutes = parseInt(timerInput.value);
+            if (isNaN(minutes) || minutes <= 0) {
+                timerStatus.textContent = '有効な分数 (1分以上) を入力してください。';
+                return;
             }
+
+            const ms = minutes * 60 * 1000;
+            timerStatus.textContent = `${minutes}分後に自動停止します。`;
+            timerInput.value = '';
+
+            stopTimer = setTimeout(() => {
+                if (isPlaying) {
+                    // 停止処理もTransport経由
+                    Tone.Transport.stop();
+                    Tone.Transport.position = 0;
+                    isPlaying = false;
+                    playPauseBtn.textContent = '再生';
+                }
+                timerStatus.textContent = 'タイマー終了 - 自動停止しました。';
+                stopTimer = null;
+            }, ms);
         });
 
-        // --- パラメータ制御 ---
+        // --- スライダーコントロール ---
 
         // Gain
         gainSlider.addEventListener('input', (e) => {
             const db = parseFloat(e.target.value);
             gainValue.textContent = db.toFixed(1);
             if (masterGain) {
-                masterGain.gain.value = db; // 'units: decibels'で初期化したため、dBを直接セット
+                masterGain.gain.value = db;
             }
         });
 
         // 速度とピッチの連動制御
-        function updatePlayback() {
-            if (!player) return;
-
-            const rate = parseFloat(rateSlider.value);
-            const pitchCents = parseFloat(pitchSlider.value);
-            
-            // 1. 再生速度 (ピッチ不変)
-            // playbackRateを変更するとピッチも変わるため、detuneで補正
-            // rate=2.0 -> 1オクターブ(1200セント)上がる -> -1200セント補正
-            const compensationCents = -1200 * Math.log2(rate);
-            
-            // 2. ピッチベンド
-            // 補正値にユーザー指定のピッチベンド値を加算
-            player.detune = compensationCents + pitchCents;
-            
-            // 3. 再生速度
-            player.playbackRate = rate;
-
-            // UI更新
+        rateSlider.addEventListener('input', (e) => {
+            const rate = parseFloat(e.target.value);
             rateValue.textContent = rate.toFixed(2);
-            pitchValue.textContent = pitchCents.toFixed(0);
-        }
+            if (player) {
+                // 再生速度の変更
+                player.playbackRate = rate;
 
-        rateSlider.addEventListener('input', updatePlayback);
-        pitchSlider.addEventListener('input', updatePlayback);
+                // ピッチ補正 (速度変更に伴うピッチ変化を打ち消す)
+                // pitchSliderの値 (ユーザー設定) に、速度補正値 (rateに応じたdetune) を加算
+                const speedCorrection = 1200 * Math.log2(1 / rate);
+                const userPitch = parseFloat(pitchSlider.value);
+                player.detune = userPitch + speedCorrection;
+            }
+        });
+
+        // ピッチベンド (速度不変)
+        pitchSlider.addEventListener('input', (e) => {
+            const userPitch = parseFloat(e.target.value);
+            pitchValue.textContent = userPitch.toFixed(0);
+            if (player) {
+                // ピッチ補正 (速度変更に伴うピッチ変化を打ち消す) を再計算して加算
+                const rate = parseFloat(rateSlider.value);
+                const speedCorrection = 1200 * Math.log2(1 / rate);
+                player.detune = userPitch + speedCorrection;
+            }
+        });
 
         // コンプレッサー
         compThreshold.addEventListener('input', (e) => {
             const val = parseFloat(e.target.value);
-            compThresholdValue.textContent = val;
-            if (compressor) {
-                compressor.threshold.value = val;
-            }
+            compThresholdValue.textContent = val.toFixed(0);
+            if (compressor) compressor.threshold.value = val;
         });
+
         compRatio.addEventListener('input', (e) => {
             const val = parseFloat(e.target.value);
             compRatioValue.textContent = val.toFixed(1);
-            if (compressor) {
-                compressor.ratio.value = val;
-            }
+            if (compressor) compressor.ratio.value = val;
         });
 
         // ディストーション
         distAmount.addEventListener('input', (e) => {
             const val = parseFloat(e.target.value);
             distAmountValue.textContent = val.toFixed(2);
-            if (distortion) {
-                distortion.distortion = val;
-            }
+            if (distortion) distortion.distortion = val;
         });
 
         // EQ
         eqSliders.forEach((eq, index) => {
             eq.el.addEventListener('input', (e) => {
-                const db = parseFloat(e.target.value);
-                eq.valEl.textContent = db.toFixed(1);
+                const gain = parseFloat(e.target.value);
+                eq.valEl.textContent = gain.toFixed(1);
                 if (eqFilters && eqFilters[index]) {
-                    eqFilters[index].gain.value = db; // EQFilterのgainはdB単位
+                    eqFilters[index].gain.value = gain;
                 }
             });
         });
@@ -579,75 +597,225 @@
         reverbDecay.addEventListener('input', (e) => {
             const val = parseFloat(e.target.value);
             reverbDecayValue.textContent = val.toFixed(1);
-            if (reverb) {
-                reverb.decay = val;
-            }
+            if (reverb) reverb.decay = val;
         });
+
         reverbWet.addEventListener('input', (e) => {
             const val = parseFloat(e.target.value);
             reverbWetValue.textContent = val.toFixed(2);
-            if (reverb) {
-                reverb.wet.value = val;
+            if (reverb) reverb.wet.value = val;
+        });
+
+        // --- AI アシスタント機能 ---
+
+        // Gemini API呼び出し
+        async function callGeminiApi(prompt) {
+            aiStatus.textContent = 'AIが設定を生成中です... しばらくお待ちください。';
+            aiGenerateBtn.disabled = true;
+            aiApplyBtn.disabled = true;
+
+            const apiKey = ""; // APIキーはCanvas環境によって自動的に提供されます
+            const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-09-2025:generateContent?key=${apiKey}`;
+
+            const systemPrompt = `あなたはプロのオーディオエンジニアです。
+ユーザーの要望に沿ったエフェクト設定を提案してください。
+回答は必ずJSON形式で、提案の簡単な説明（description）と、以下のキーを含む設定オブジェクト（settings）を返してください。
+- gain (dB, -40から10)
+- pitch (セント, -1200から1200)
+- rate (倍率, 0.5から2.0)
+- compressorThreshold (dB, -60から0)
+- compressorRatio (1から20)
+- distortionAmount (0.0から1.0)
+- eq1_60hz (dB, -20から20)
+- eq2_250hz (dB, -20から20)
+- eq3_1khz (dB, -20から20)
+- eq4_4khz (dB, -20から20)
+- eq5_10khz (dB, -20から20)
+- reverbDecay (秒, 0.1から10)
+- reverbWet (0.0から1.0)
+
+数値は必ず指定された範囲内に収めてください。`;
+
+            // JSONスキーマの定義
+            const schema = {
+                type: "OBJECT",
+                properties: {
+                    "description": { "type": "STRING" },
+                    "settings": {
+                        type: "OBJECT",
+                        properties: {
+                            "gain": { "type": "NUMBER" },
+                            "pitch": { "type": "NUMBER" },
+                            "rate": { "type": "NUMBER" },
+                            "compressorThreshold": { "type": "NUMBER" },
+                            "compressorRatio": { "type": "NUMBER" },
+                            "distortionAmount": { "type": "NUMBER" },
+                            "eq1_60hz": { "type": "NUMBER" },
+                            "eq2_250hz": { "type": "NUMBER" },
+                            "eq3_1khz": { "type": "NUMBER" },
+                            "eq4_4khz": { "type": "NUMBER" },
+                            "eq5_10khz": { "type": "NUMBER" },
+                            "reverbDecay": { "type": "NUMBER" },
+                            "reverbWet": { "type": "NUMBER" }
+                        }
+                    }
+                }
+            };
+
+            const payload = {
+                contents: [{ parts: [{ text: prompt }] }],
+                systemInstruction: {
+                    parts: [{ text: systemPrompt }]
+                },
+                generationConfig: {
+                    responseMimeType: "application/json",
+                    responseSchema: schema
+                }
+            };
+
+            try {
+                const response = await fetch(apiUrl, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(payload)
+                });
+
+                if (!response.ok) {
+                    throw new Error(`API error: ${response.statusText}`);
+                }
+
+                const result = await response.json();
+                
+                if (result.candidates && result.candidates[0].content?.parts?.[0]?.text) {
+                    const jsonText = result.candidates[0].content.parts[0].text;
+                    const parsedJson = JSON.parse(jsonText);
+                    
+                    // レスポンスを処理
+                    aiStatus.textContent = parsedJson.description || "AIからの提案:";
+                    currentAiSettings = parsedJson.settings;
+                    aiApplyBtn.disabled = false;
+
+                } else {
+                    throw new Error("AIからの有効なレスポンスがありませんでした。");
+                }
+
+            } catch (error) {
+                console.error("Gemini API Error:", error);
+                aiStatus.textContent = `エラーが発生しました: ${error.message}`;
+            } finally {
+                aiGenerateBtn.disabled = false;
+            }
+        }
+
+        // AI設定をスライダーに適用する
+        function applyAiSettings() {
+            if (!currentAiSettings) return;
+
+            const settings = currentAiSettings;
+            const inputEvent = new Event('input');
+
+            // ヘルパー関数で値の設定とイベント発火
+            const setSliderValue = (slider, value) => {
+                if (value !== undefined && slider) {
+                    // 値が最小・最大を超えないように丸める
+                    const min = parseFloat(slider.min);
+                    const max = parseFloat(slider.max);
+                    slider.value = Math.max(min, Math.min(max, value));
+                    slider.dispatchEvent(inputEvent);
+                }
+            };
+
+            // 各スライダーに値を適用
+            setSliderValue(gainSlider, settings.gain);
+            setSliderValue(pitchSlider, settings.pitch);
+            setSliderValue(rateSlider, settings.rate);
+            
+            setSliderValue(compThreshold, settings.compressorThreshold);
+            setSliderValue(compRatio, settings.compressorRatio);
+            setSliderValue(distAmount, settings.distortionAmount);
+
+            setSliderValue(eqSliders[0].el, settings.eq1_60hz);
+            setSliderValue(eqSliders[1].el, settings.eq2_250hz);
+            setSliderValue(eqSliders[2].el, settings.eq3_1khz);
+            setSliderValue(eqSliders[3].el, settings.eq4_4khz);
+            setSliderValue(eqSliders[4].el, settings.eq5_10khz);
+
+            setSliderValue(reverbDecay, settings.reverbDecay);
+            setSliderValue(reverbWet, settings.reverbWet);
+
+            aiStatus.textContent = "AIによる設定を適用しました。";
+        }
+
+        // イベントリスナー
+        aiGenerateBtn.addEventListener('click', () => {
+            const prompt = aiPrompt.value;
+            if (prompt.trim()) {
+                callGeminiApi(prompt);
+            } else {
+                aiStatus.textContent = "テキストボックスに要望を入力してください。";
             }
         });
+
+        aiApplyBtn.addEventListener('click', applyAiSettings);
+
 
         // --- アナライザ描画 ---
         function drawAnalysers() {
             requestAnimationFrame(drawAnalysers);
 
-            if (!isInitialized || !audioReady) return;
-            
-            // 波形 (Waveform)
-            const wWidth = waveformCanvas.clientWidth;
-            const wHeight = waveformCanvas.clientHeight;
-            waveformCtx.clearRect(0, 0, wWidth, wHeight);
-            waveformCtx.strokeStyle = '#3b82f6'; // blue-500
+            if (!isInitialized) return;
+
+            // Waveform (時間領域)
+            const waveData = analyserWave.getValue();
+            const waveWidth = waveformCanvas.width;
+            const waveHeight = waveformCanvas.height;
+            waveformCtx.clearRect(0, 0, waveWidth, waveHeight);
             waveformCtx.lineWidth = 2;
+            waveformCtx.strokeStyle = 'rgb(66, 153, 225)'; // Blue-500
+            waveformCtx.beginPath();
 
-            if (analyserWave) {
-                const waveform = analyserWave.getValue(); // -1から1の間のFloat32Array
-                waveformCtx.beginPath();
-                for (let i = 0; i < waveform.length; i++) {
-                    const x = (i / waveform.length) * wWidth;
-                    const y = (waveform[i] * 0.5 + 0.5) * wHeight; // -1..1 -> 0..1 -> 0..height
+            const sliceWidth = waveWidth * 1.0 / waveData.length;
+            let x = 0;
 
-                    if (i === 0) {
-                        waveformCtx.moveTo(x, y);
-                    } else {
-                        waveformCtx.lineTo(x, y);
-                    }
+            for (let i = 0; i < waveData.length; i++) {
+                const v = waveData[i];
+                const y = (v + 1) / 2 * waveHeight;
+
+                if (i === 0) {
+                    waveformCtx.moveTo(x, y);
+                } else {
+                    waveformCtx.lineTo(x, y);
                 }
-                waveformCtx.stroke();
+
+                x += sliceWidth;
             }
 
-            // 周波数 (FFT)
-            const fWidth = fftCanvas.clientWidth;
-            const fHeight = fftCanvas.clientHeight;
-            fftCtx.clearRect(0, 0, fWidth, fHeight);
-            
-            if (analyserFft) {
-                const fft = analyserFft.getValue(); // dB値のFloat32Array
-                const barWidth = (fWidth / fft.length) * 1.5;
-                const minDb = analyserFft.minDecibels;
-                const maxDb = analyserFft.maxDecibels;
+            waveformCtx.lineTo(waveWidth, waveHeight / 2);
+            waveformCtx.stroke();
 
-                fftCtx.fillStyle = '#60a5fa'; // blue-400
-                
-                for (let i = 0; i < fft.length; i++) {
-                    const db = fft[i];
-                    // dB値を 0..1 の範囲に正規化
-                    const normalized = (db - minDb) / (maxDb - minDb);
-                    const barHeight = normalized * fHeight;
-                    
-                    const x = i * (fWidth / fft.length);
-                    const y = fHeight - barHeight;
-                    
-                    fftCtx.fillRect(x, y, barWidth, barHeight);
-                }
+            // FFT (周波数領域)
+            const fftData = analyserFft.getValue();
+            const fftWidth = fftCanvas.width;
+            const fftHeight = fftCanvas.height;
+            fftCtx.clearRect(0, 0, fftWidth, fftHeight);
+
+            const barWidth = (fftWidth / fftData.length) * 2.5;
+            let barX = 0;
+
+            for (let i = 0; i < fftData.length; i++) {
+                // dB値を高さに変換 (-100dBから0dBの範囲を0から100%にマッピング)
+                let percent = (fftData[i] + 100) / 100;
+                let barHeight = percent * fftHeight;
+
+                // 最小値を設定してバーが消えないようにする
+                barHeight = Math.max(2, barHeight); 
+
+                fftCtx.fillStyle = `rgb(109, 40, 217, ${percent + 0.2})`; // Purple-700
+                fftCtx.fillRect(barX, fftHeight - barHeight, barWidth, barHeight);
+
+                barX += barWidth + 1;
             }
-        }
-        
+        } 
     </script>
 </body>
 </html>
-
