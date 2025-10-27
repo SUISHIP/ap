@@ -1,183 +1,653 @@
-<!doctype html>
+<!DOCTYPE html>
 <html lang="ja">
 <head>
-  <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width,initial-scale=1" />
-  <title>1時間ループ再生</title>
-  <style>
-    body { font-family: system-ui, -apple-system, "Segoe UI", Roboto, "ヒラギノ角ゴ ProN", "Hiragino Kaku Gothic ProN", Meiryo, sans-serif; padding: 20px; max-width: 800px; margin: auto; }
-    .player { margin-top: 16px; }
-    .controls { margin-top: 12px; display:flex; gap:8px; align-items:center; flex-wrap:wrap; }
-    .time { font-weight: 600; }
-    .notice { margin-top:10px; color: #666; font-size:0.9rem; }
-  </style>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>オーディオプレイヤー</title>
+    <!-- Tailwind CSS CDN -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Tone.js CDN (Web Audio Framework) -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/tone/14.7.77/Tone.js"></script>
+    <style>
+        /* Interフォントの読み込み */
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
+        body {
+            font-family: 'Inter', sans-serif;
+            /* iOSでのオーバースクロールによるバウンスを防ぐ */
+            overscroll-behavior: none;
+        }
+        /* スライダーの見た目をカスタマイズ */
+        input[type="range"] {
+            -webkit-appearance: none;
+            appearance: none;
+            background: transparent;
+            cursor: pointer;
+            width: 100%;
+        }
+        /* スライダー トラック (Chrome, Safari, Edge) */
+        input[type="range"]::-webkit-slider-runnable-track {
+            background: #e5e7eb; /* gray-200 */
+            height: 0.5rem;
+            border-radius: 0.25rem;
+        }
+        /* スライダー つまみ (Chrome, Safari, Edge) */
+        input[type="range"]::-webkit-slider-thumb {
+            -webkit-appearance: none;
+            appearance: none;
+            margin-top: -4px; /* トラックの中央に配置 */
+            background-color: #3b82f6; /* blue-500 */
+            height: 1.25rem;
+            width: 1.25rem;
+            border-radius: 9999px;
+            border: 2px solid white;
+            box-shadow: 0 1px 3px 0 rgba(0, 0, 0, 0.1), 0 1px 2px 0 rgba(0, 0, 0, 0.06);
+        }
+        /* スライダー トラック (Firefox) */
+        input[type="range"]::-moz-range-track {
+            background: #e5e7eb; /* gray-200 */
+            height: 0.5rem;
+            border-radius: 0.25rem;
+        }
+        /* スライダー つまみ (Firefox) */
+        input[type="range"]::-moz-range-thumb {
+            background-color: #3b82f6; /* blue-500 */
+            height: 1.25rem;
+            width: 1.25rem;
+            border-radius: 9999px;
+            border: 2px solid white;
+            box-shadow: 0 1px 3px 0 rgba(0, 0, 0, 0.1), 0 1px 2px 0 rgba(0, 0, 0, 0.06);
+        }
+        /* EQスライダー (縦) */
+        .vertical-slider-container {
+            writing-mode: bt-lr; /* IE/Edge */
+            -webkit-appearance: slider-vertical; /* WebKit */
+            width: 2rem;
+            height: 120px;
+            padding: 0;
+        }
+        .vertical-slider-container input[type="range"] {
+            width: 120px;
+            height: 2rem;
+            margin: 0;
+            transform-origin: 70px 70px; /* 回転の中心を調整 */
+            transform: rotate(-90deg);
+        }
+    </style>
 </head>
-<body>
-  <h1>ファイルを選択して1時間ループ再生</h1>
+<body class="bg-gray-100 text-gray-800 min-h-screen p-4 md:p-8">
 
-  <p>ローカルの音声または動画ファイルを選択してください。選択時に再生が始まり、合計で1時間経過するまでファイルをループ再生します。</p>
+    <div class="max-w-4xl mx-auto bg-white rounded-xl shadow-2xl p-6 md:p-8 space-y-6">
+        
+        <h1 class="text-3xl font-bold text-center text-blue-600">Audio FX Player</h1>
+        
+        <!-- 1. ファイル入力 -->
+        <div class="border-b pb-6">
+            <label for="file-input" class="block text-sm font-medium text-gray-700 mb-2">1. 音声ファイルを選択</label>
+            <input id="file-input" type="file" accept="audio/*" class="block w-full text-sm text-gray-500
+                file:mr-4 file:py-2 file:px-4
+                file:rounded-full file:border-0
+                file:text-sm file:font-semibold
+                file:bg-blue-50 file:text-blue-700
+                hover:file:bg-blue-100
+                cursor-pointer
+            ">
+            <p id="loading-status" class="text-sm text-blue-600 mt-2"></p>
+        </div>
 
-  <input id="fileInput" type="file" accept="audio/*,video/*" />
-  <div class="player" id="playerContainer"></div>
+        <!-- 2. 再生コントロール -->
+        <div class="grid grid-cols-2 md:grid-cols-4 gap-4 border-b pb-6">
+            <button id="play-pause-btn" class="bg-blue-500 hover:bg-blue-600 text-white font-bold py-3 px-4 rounded-lg shadow-md transition duration-200 disabled:opacity-50 disabled:cursor-not-allowed" disabled>
+                再生
+            </button>
+            <button id="stop-btn" class="bg-gray-500 hover:bg-gray-600 text-white font-bold py-3 px-4 rounded-lg shadow-md transition duration-200 disabled:opacity-50 disabled:cursor-not-allowed" disabled>
+                停止
+            </button>
+            
+            <!-- ループ -->
+            <label for="loop-toggle" class="flex items-center justify-center bg-gray-100 p-3 rounded-lg shadow-inner cursor-pointer">
+                <input type="checkbox" id="loop-toggle" class="form-checkbox h-5 w-5 text-blue-600 rounded">
+                <span class="ml-3 font-medium text-gray-700">ループ</span>
+            </label>
 
-  <div class="controls">
-    <button id="startBtn" disabled>開始</button>
-    <button id="stopBtn" disabled>停止</button>
-    <div class="time">残り時間: <span id="remaining">--:--:--</span></div>
-  </div>
+            <!-- オフタイマー -->
+            <div class="flex items-center space-x-2 bg-gray-100 p-3 rounded-lg shadow-inner">
+                <input type="number" id="timer-input" min="1" placeholder="分" class="w-16 p-2 rounded-md border border-gray-300 text-sm focus:ring-blue-500 focus:border-blue-500">
+                <button id="timer-btn" class="bg-blue-500 hover:bg-blue-600 text-white text-sm font-medium py-2 px-3 rounded-md shadow transition duration-200">
+                    タイマー
+                </button>
+            </div>
+            <p id="timer-status" class="text-sm text-green-600 col-span-full text-center mt-2"></p>
+        </div>
 
-  <div class="notice">
-    ※ ファイルの選択はユーザー操作となるため、ブラウザが自動再生ブロックを回避できます。ファイル長が1時間より長い場合は途中で停止します。  
-  </div>
+        <!-- 3. メインコントロール -->
+        <div class="grid md:grid-cols-3 gap-6 border-b pb-6">
+            <!-- マスターGain -->
+            <div class_controls>
+                <label for="gain-slider" class="block text-sm font-medium text-gray-700">マスターGain (<span id="gain-value">0</span> dB)</label>
+                <input id="gain-slider" type="range" min="-40" max="10" value="0" step="0.5" class="mt-2">
+            </div>
+            <!-- 再生速度 (ピッチ不変) -->
+            <div class_controls>
+                <label for="rate-slider" class="block text-sm font-medium text-gray-700">再生速度 (<span id="rate-value">1.00</span> x)</label>
+                <input id="rate-slider" type="range" min="0.5" max="2.0" value="1.0" step="0.01" class="mt-2">
+            </div>
+            <!-- ピッチベンド (速度不変) -->
+            <div class_controls>
+                <label for="pitch-slider" class="block text-sm font-medium text-gray-700">ピッチ (<span id="pitch-value">0</span> セント)</label>
+                <input id="pitch-slider" type="range" min="-1200" max="1200" value="0" step="1" class="mt-2">
+            </div>
+        </div>
 
-<script>
-(function(){
-  const fileInput = document.getElementById('fileInput');
-  const playerContainer = document.getElementById('playerContainer');
-  const startBtn = document.getElementById('startBtn');
-  const stopBtn = document.getElementById('stopBtn');
-  const remainingEl = document.getElementById('remaining');
+        <!-- 4. エフェクト -->
+        <div class="space-y-6 border-b pb-6">
+            <h2 class="text-xl font-semibold text-gray-800">エフェクト</h2>
+            
+            <!-- コンプレッサー & ディストーション -->
+            <div class="grid md:grid-cols-2 gap-6">
+                <!-- コンプレッサー -->
+                <div>
+                    <h3 class="font-medium text-gray-700 mb-2">コンプレッサー</h3>
+                    <div class="p-4 bg-gray-50 rounded-lg shadow-inner space-y-3">
+                        <div>
+                            <label for="comp-threshold" class="text-sm">Threshold (<span id="comp-threshold-value">-24</span> dB)</label>
+                            <input id="comp-threshold" type="range" min="-60" max="0" value="-24" step="1">
+                        </div>
+                        <div>
+                            <label for="comp-ratio" class="text-sm">Ratio (<span id="comp-ratio-value">12</span>:1)</label>
+                            <input id="comp-ratio" type="range" min="1" max="20" value="12" step="0.5">
+                        </div>
+                    </div>
+                </div>
+                <!-- ディストーション -->
+                <div>
+                    <h3 class="font-medium text-gray-700 mb-2">ディストーション</h3>
+                    <div class="p-4 bg-gray-50 rounded-lg shadow-inner space-y-3">
+                        <div>
+                            <label for="dist-amount" class="text-sm">Amount (<span id="dist-amount-value">0.0</span>)</label>
+                            <input id="dist-amount" type="range" min="0" max="1" value="0" step="0.01">
+                        </div>
+                    </div>
+                </div>
+            </div>
 
-  let media = null;               // HTMLMediaElement (audio/video)
-  let objectUrl = null;
-  const TOTAL_MS = 3600 * 1000;   // 1時間 = 3600秒
-  let startTime = null;           // Date.now() when started
-  let running = false;
-  let rafId = null;
+            <!-- 5バンドイコライザー -->
+            <div>
+                <h3 class="font-medium text-gray-700 mb-2">5バンド イコライザー (dB)</h3>
+                <div class="p-4 bg-gray-50 rounded-lg shadow-inner flex justify-around items-end space-x-2">
+                    <!-- 60Hz -->
+                    <div class="text-center">
+                        <span id="eq1-value" class="text-sm font-medium">0</span>
+                        <div class="vertical-slider-container my-2">
+                            <input id="eq1" type="range" min="-20" max="20" value="0" step="0.5" class="eq-slider">
+                        </div>
+                        <label class="text-xs font-medium text-gray-600">60Hz</label>
+                    </div>
+                    <!-- 250Hz -->
+                    <div class="text-center">
+                        <span id="eq2-value" class="text-sm font-medium">0</span>
+                        <div class="vertical-slider-container my-2">
+                            <input id="eq2" type="range" min="-20" max="20" value="0" step="0.5" class="eq-slider">
+                        </div>
+                        <label class="text-xs font-medium text-gray-600">250Hz</label>
+                    </div>
+                    <!-- 1kHz -->
+                    <div class="text-center">
+                        <span id="eq3-value" class="text-sm font-medium">0</span>
+                        <div class="vertical-slider-container my-2">
+                            <input id="eq3" type="range" min="-20" max="20" value="0" step="0.5" class="eq-slider">
+                        </div>
+                        <label class="text-xs font-medium text-gray-600">1kHz</label>
+                    </div>
+                    <!-- 4kHz -->
+                    <div class="text-center">
+                        <span id="eq4-value" class="text-sm font-medium">0</span>
+                        <div class="vertical-slider-container my-2">
+                            <input id="eq4" type="range" min="-20" max="20" value="0" step="0.5" class="eq-slider">
+                        </div>
+                        <label class="text-xs font-medium text-gray-600">4kHz</label>
+                    </div>
+                    <!-- 10kHz -->
+                    <div class="text-center">
+                        <span id="eq5-value" class="text-sm font-medium">0</span>
+                        <div class="vertical-slider-container my-2">
+                            <input id="eq5" type="range" min="-20" max="20" value="0" step="0.5" class="eq-slider">
+                        </div>
+                        <label class="text-xs font-medium text-gray-600">10kHz</label>
+                    </div>
+                </div>
+            </div>
 
-  function formatTime(ms) {
-    if (ms < 0) ms = 0;
-    const s = Math.floor(ms / 1000);
-    const hh = String(Math.floor(s / 3600)).padStart(2, '0');
-    const mm = String(Math.floor((s % 3600) / 60)).padStart(2, '0');
-    const ss = String(s % 60).padStart(2, '0');
-    return `${hh}:${mm}:${ss}`;
-  }
+            <!-- リバーブ -->
+            <div>
+                <h3 class="font-medium text-gray-700 mb-2">リバーブ</h3>
+                <div class="p-4 bg-gray-50 rounded-lg shadow-inner space-y-3">
+                    <div>
+                        <label for="reverb-decay" class="text-sm">Decay (s) (<span id="reverb-decay-value">1.5</span>)</label>
+                        <input id="reverb-decay" type="range" min="0.1" max="10" value="1.5" step="0.1">
+                    </div>
+                    <div>
+                        <label for="reverb-wet" class="text-sm">Wet (<span id="reverb-wet-value">0.0</span>)</label>
+                        <input id="reverb-wet" type="range" min="0" max="1" value="0" step="0.01">
+                    </div>
+                </div>
+            </div>
+        </div>
 
-  function updateRemaining() {
-    if (!running || startTime === null) return;
-    const elapsed = Date.now() - startTime;
-    const remaining = TOTAL_MS - elapsed;
-    remainingEl.textContent = formatTime(remaining);
-    if (remaining <= 0) {
-      // 終了
-      stopPlayback();
-      return;
-    }
-    rafId = requestAnimationFrame(updateRemaining);
-  }
+        <!-- 5. ビジュアルアナライザ -->
+        <div>
+            <h2 class="text-xl font-semibold text-gray-800 mb-4">ビジュアルアナライザ</h2>
+            <div class="grid md:grid-cols-2 gap-4">
+                <div>
+                    <h3 class="font-medium text-gray-700 mb-2 text-center">波形 (Waveform)</h3>
+                    <canvas id="waveform-canvas" class="w-full h-32 bg-gray-900 rounded-lg shadow-inner"></canvas>
+                </div>
+                <div>
+                    <h3 class="font-medium text-gray-700 mb-2 text-center">周波数 (FFT)</h3>
+                    <canvas id="fft-canvas" class="w-full h-32 bg-gray-900 rounded-lg shadow-inner"></canvas>
+                </div>
+            </div>
+        </div>
 
-  function beginPlayback() {
-    if (!media) return;
-    // if media already playing, do nothing except set running
-    startTime = startTime ?? Date.now(); // if already started, keep original startTime
-    running = true;
-    startBtn.disabled = true;
-    stopBtn.disabled = false;
-    media.play().catch((e) => {
-      // ブラウザが再生をブロックする可能性
-      console.warn('Play failed:', e);
-    });
-    if (!rafId) updateRemaining();
-  }
+    </div>
 
-  function stopPlayback() {
-    running = false;
-    if (media) {
-      try { media.pause(); } catch(e){}
-    }
-    startBtn.disabled = false;
-    stopBtn.disabled = true;
-    startTime = null;
-    remainingEl.textContent = formatTime(0);
-    if (rafId) { cancelAnimationFrame(rafId); rafId = null; }
-  }
+    <script type(="module")>
+        // DOM要素の取得
+        const fileInput = document.getElementById('file-input');
+        const loadingStatus = document.getElementById('loading-status');
+        const playPauseBtn = document.getElementById('play-pause-btn');
+        const stopBtn = document.getElementById('stop-btn');
+        const loopToggle = document.getElementById('loop-toggle');
+        
+        const timerInput = document.getElementById('timer-input');
+        const timerBtn = document.getElementById('timer-btn');
+        const timerStatus = document.getElementById('timer-status');
+        
+        const gainSlider = document.getElementById('gain-slider');
+        const gainValue = document.getElementById('gain-value');
+        const rateSlider = document.getElementById('rate-slider');
+        const rateValue = document.getElementById('rate-value');
+        const pitchSlider = document.getElementById('pitch-slider');
+        const pitchValue = document.getElementById('pitch-value');
 
-  function cleanupMedia() {
-    if (media) {
-      media.removeEventListener('ended', onEnded);
-      try { media.pause(); } catch(e){}
-      playerContainer.innerHTML = '';
-      media = null;
-    }
-    if (objectUrl) {
-      URL.revokeObjectURL(objectUrl);
-      objectUrl = null;
-    }
-    stopPlayback();
-  }
+        const compThreshold = document.getElementById('comp-threshold');
+        const compThresholdValue = document.getElementById('comp-threshold-value');
+        const compRatio = document.getElementById('comp-ratio');
+        const compRatioValue = document.getElementById('comp-ratio-value');
 
-  function onEnded() {
-    // 再生が終わった → まだ1時間経っていなければ先頭に戻して再生
-    if (!running || startTime === null) return;
-    const elapsed = Date.now() - startTime;
-    if (elapsed < TOTAL_MS) {
-      try {
-        media.currentTime = 0;
-        media.play().catch((e)=>{console.warn('loop play failed', e);});
-      } catch(e) {
-        // 一部形式や環境で currentTime 書き換えが禁止される可能性
-        console.warn('reloop error', e);
-      }
-    } else {
-      stopPlayback();
-    }
-  }
+        const distAmount = document.getElementById('dist-amount');
+        const distAmountValue = document.getElementById('dist-amount-value');
 
-  fileInput.addEventListener('change', (ev) => {
-    cleanupMedia();
-    const f = ev.target.files && ev.target.files[0];
-    if (!f) return;
-    objectUrl = URL.createObjectURL(f);
+        const eqSliders = [
+            { el: document.getElementById('eq1'), valEl: document.getElementById('eq1-value'), freq: 60 },
+            { el: document.getElementById('eq2'), valEl: document.getElementById('eq2-value'), freq: 250 },
+            { el: document.getElementById('eq3'), valEl: document.getElementById('eq3-value'), freq: 1000 },
+            { el: document.getElementById('eq4'), valEl: document.getElementById('eq4-value'), freq: 4000 },
+            { el: document.getElementById('eq5'), valEl: document.getElementById('eq5-value'), freq: 10000 }
+        ];
 
-    // audio か video を判定。タイプが空なら拡張子から推測。
-    const t = f.type || '';
-    const isVideo = t.startsWith('video') || /\.(mp4|webm|ogg|mov|mkv)$/i.test(f.name);
-    if (isVideo) {
-      media = document.createElement('video');
-      media.width = 640;
-      media.height = 360;
-      media.controls = true;
-      media.playsInline = true;
-    } else {
-      media = document.createElement('audio');
-      media.controls = true;
-    }
-    media.src = objectUrl;
-    media.preload = 'auto';
-    media.style.maxWidth = '100%';
-    media.addEventListener('ended', onEnded);
-    playerContainer.appendChild(media);
+        const reverbDecay = document.getElementById('reverb-decay');
+        const reverbDecayValue = document.getElementById('reverb-decay-value');
+        const reverbWet = document.getElementById('reverb-wet');
+        const reverbWetValue = document.getElementById('reverb-wet-value');
 
-    // 初期状態: 開始ボタンを有効にしておく（ファイル選択はユーザー操作なので再生可能なことが多い）
-    startBtn.disabled = false;
-    stopBtn.disabled = true;
-    remainingEl.textContent = formatTime(TOTAL_MS);
-    // 自動で開始したければ以下を有効に（ただしブラウザ自動再生制限に注意）
-    // startPlayback();
-  });
+        const waveformCanvas = document.getElementById('waveform-canvas');
+        const waveformCtx = waveformCanvas.getContext('2d');
+        const fftCanvas = document.getElementById('fft-canvas');
+        const fftCtx = fftCanvas.getContext('2d');
 
-  startBtn.addEventListener('click', () => {
-    if (!media) return;
-    // 新しく開始する場合は startTime を現在にリセット
-    startTime = Date.now();
-    running = true;
-    startBtn.disabled = true;
-    stopBtn.disabled = false;
-    // すでにファイルが最後まである場合や長い場合も、1時間ループのために ended イベントで判断する
-    media.currentTime = 0;
-    media.play().catch((e) => console.warn('play error', e));
-    if (!rafId) updateRemaining();
-  });
+        // Tone.jsのセットアップ
+        let player, masterGain, compressor, distortion, eqFilters, reverb, analyserWave, analyserFft;
+        let isPlaying = false;
+        let isInitialized = false;
+        let audioReady = false;
+        let stopTimer = null;
 
-  stopBtn.addEventListener('click', () => {
-    stopPlayback();
-  });
+        // アナライザのキャンバスサイズ設定
+        function setupCanvas(canvas, ctx) {
+            const dpr = window.devicePixelRatio || 1;
+            const rect = canvas.getBoundingClientRect();
+            canvas.width = rect.width * dpr;
+            canvas.height = rect.height * dpr;
+            ctx.scale(dpr, dpr);
+            canvas.style.width = `${rect.width}px`;
+            canvas.style.height = `${rect.height}px`;
+        }
 
-  // ウィンドウを閉じる／リロード時にオブジェクトURL解放
-  window.addEventListener('beforeunload', cleanupMedia);
+        window.addEventListener('resize', () => {
+            setupCanvas(waveformCanvas, waveformCtx);
+            setupCanvas(fftCanvas, fftCtx);
+        });
 
-})();
-</script>
+        // オーディオノードの初期化
+        function initializeAudioNodes() {
+            if (isInitialized) return;
+
+            masterGain = new Tone.Gain({ gain: gainSlider.value, units: 'decibels' }).toDestination();
+            analyserWave = new Tone.Analyser('waveform', 1024);
+            analyserFft = new Tone.Analyser('fft', 256);
+            reverb = new Tone.Reverb({
+                decay: parseFloat(reverbDecay.value),
+                wet: parseFloat(reverbWet.value)
+            });
+            
+            // EQフィルタ (Peaking)
+            eqFilters = eqSliders.map(eq => {
+                return new Tone.Filter({
+                    type: 'peaking',
+                    frequency: eq.freq,
+                    Q: 1, // Q値 (固定)
+                    gain: parseFloat(eq.el.value)
+                });
+            });
+
+            distortion = new Tone.Distortion(parseFloat(distAmount.value));
+            compressor = new Tone.Compressor({
+                threshold: parseFloat(compThreshold.value),
+                ratio: parseFloat(compRatio.value)
+            });
+
+            // エフェクトチェーンの接続
+            // Playerはファイルロード時に作成・接続
+            
+            // Player -> Compressor -> Distortion -> EQ (Chain) -> Reverb -> MasterGain -> Analysers -> Destination
+            Tone.connect(compressor, distortion);
+            
+            // EQフィルターをチェーン接続
+            for (let i = 0; i < eqFilters.length - 1; i++) {
+                Tone.connect(eqFilters[i], eqFilters[i + 1]);
+            }
+            
+            // Distortion -> EQチェーンの最初
+            Tone.connect(distortion, eqFilters[0]);
+            
+            // EQチェーンの最後 -> Reverb
+            Tone.connect(eqFilters[eqFilters.length - 1], reverb);
+            
+            // Reverb -> MasterGain
+            Tone.connect(reverb, masterGain);
+            
+            // MasterGainからアナライザへ (並列)
+            Tone.connect(masterGain, analyserWave);
+            Tone.connect(masterGain, analyserFft);
+            
+            // MasterGainは既にDestinationに接続済み
+
+            // アナライザの描画ループ開始
+            setupCanvas(waveformCanvas, waveformCtx);
+            setupCanvas(fftCanvas, fftCtx);
+            drawAnalysers();
+
+            isInitialized = true;
+        }
+
+        // ファイル入力
+        fileInput.addEventListener('change', async (e) => {
+            const file = e.target.files[0];
+            if (!file) return;
+
+            // iOSのためにTone.start()を試みる
+            if (Tone.context.state !== 'running') {
+                await Tone.start();
+                console.log('AudioContext started by file input');
+            }
+            
+            // オーディオノードがまだなら初期化
+            if (!isInitialized) {
+                initializeAudioNodes();
+            }
+
+            loadingStatus.textContent = 'ファイルを読み込み中...';
+            playPauseBtn.disabled = true;
+            stopBtn.disabled = true;
+            audioReady = false;
+            
+            if (player) {
+                player.stop();
+                player.dispose(); // 古いプレイヤーを破棄
+            }
+
+            const url = URL.createObjectURL(file);
+            
+            try {
+                player = new Tone.Player(url, () => {
+                    // 読み込み完了コールバック
+                    loadingStatus.textContent = `読み込み完了: ${file.name}`;
+                    playPauseBtn.disabled = false;
+                    stopBtn.disabled = false;
+                    audioReady = true;
+                    // プレイヤーをエフェクトチェーンの先頭に接続
+                    player.connect(compressor);
+                });
+                
+                // 再生終了時の処理
+                player.onstop = () => {
+                    if (audioReady) { // ユーザーによる停止の場合のみ
+                        isPlaying = false;
+                        playPauseBtn.textContent = '再生';
+                    }
+                };
+                
+            } catch (error) {
+                loadingStatus.textContent = 'エラー: ファイルを読み込めません。';
+                console.error(error);
+            }
+        });
+
+        // 再生・一時停止
+        playPauseBtn.addEventListener('click', async () => {
+            if (!audioReady) return;
+
+            // iOS対応: ユーザー操作時にAudioContextを開始
+            if (Tone.context.state !== 'running') {
+                await Tone.start();
+                console.log('AudioContext started by play button');
+            }
+            
+            if (!isInitialized) {
+                initializeAudioNodes();
+            }
+
+            if (isPlaying) {
+                player.pause();
+                isPlaying = false;
+                playPauseBtn.textContent = '再生';
+            } else {
+                player.start();
+                isPlaying = true;
+                playPauseBtn.textContent = '一時停止';
+            }
+        });
+
+        // 停止
+        stopBtn.addEventListener('click', () => {
+            if (!audioReady) return;
+            player.stop();
+            isPlaying = false;
+            playPauseBtn.textContent = '再生';
+        });
+
+        // ループ
+        loopToggle.addEventListener('change', (e) => {
+            if (player) {
+                player.loop = e.target.checked;
+            }
+        });
+
+        // オフタイマー
+        timerBtn.addEventListener('click', () => {
+            const minutes = parseFloat(timerInput.value);
+            if (isNaN(minutes) || minutes <= 0) {
+                timerStatus.textContent = '無効な時間です';
+                return;
+            }
+
+            if (stopTimer) {
+                clearTimeout(stopTimer);
+                timerStatus.textContent = 'タイマーをキャンセルしました';
+                stopTimer = null;
+                timerBtn.textContent = 'タイマー';
+            } else {
+                const ms = minutes * 60 * 1000;
+                stopTimer = setTimeout(() => {
+                    if (player && isPlaying) {
+                        player.stop();
+                    }
+                    timerStatus.textContent = 'タイマー終了';
+                    stopTimer = null;
+                    timerBtn.textContent = 'タイマー';
+                }, ms);
+                timerStatus.textContent = `${minutes}分後に停止します`;
+                timerBtn.textContent = 'キャンセル';
+            }
+        });
+
+        // --- パラメータ制御 ---
+
+        // Gain
+        gainSlider.addEventListener('input', (e) => {
+            const db = parseFloat(e.target.value);
+            gainValue.textContent = db.toFixed(1);
+            if (masterGain) {
+                masterGain.gain.value = db; // 'units: decibels'で初期化したため、dBを直接セット
+            }
+        });
+
+        // 速度とピッチの連動制御
+        function updatePlayback() {
+            if (!player) return;
+
+            const rate = parseFloat(rateSlider.value);
+            const pitchCents = parseFloat(pitchSlider.value);
+            
+            // 1. 再生速度 (ピッチ不変)
+            // playbackRateを変更するとピッチも変わるため、detuneで補正
+            // rate=2.0 -> 1オクターブ(1200セント)上がる -> -1200セント補正
+            const compensationCents = -1200 * Math.log2(rate);
+            
+            // 2. ピッチベンド
+            // 補正値にユーザー指定のピッチベンド値を加算
+            player.detune = compensationCents + pitchCents;
+            
+            // 3. 再生速度
+            player.playbackRate = rate;
+
+            // UI更新
+            rateValue.textContent = rate.toFixed(2);
+            pitchValue.textContent = pitchCents.toFixed(0);
+        }
+
+        rateSlider.addEventListener('input', updatePlayback);
+        pitchSlider.addEventListener('input', updatePlayback);
+
+        // コンプレッサー
+        compThreshold.addEventListener('input', (e) => {
+            const val = parseFloat(e.target.value);
+            compThresholdValue.textContent = val;
+            if (compressor) {
+                compressor.threshold.value = val;
+            }
+        });
+        compRatio.addEventListener('input', (e) => {
+            const val = parseFloat(e.target.value);
+            compRatioValue.textContent = val.toFixed(1);
+            if (compressor) {
+                compressor.ratio.value = val;
+            }
+        });
+
+        // ディストーション
+        distAmount.addEventListener('input', (e) => {
+            const val = parseFloat(e.target.value);
+            distAmountValue.textContent = val.toFixed(2);
+            if (distortion) {
+                distortion.distortion = val;
+            }
+        });
+
+        // EQ
+        eqSliders.forEach((eq, index) => {
+            eq.el.addEventListener('input', (e) => {
+                const db = parseFloat(e.target.value);
+                eq.valEl.textContent = db.toFixed(1);
+                if (eqFilters && eqFilters[index]) {
+                    eqFilters[index].gain.value = db; // EQFilterのgainはdB単位
+                }
+            });
+        });
+
+        // リバーブ
+        reverbDecay.addEventListener('input', (e) => {
+            const val = parseFloat(e.target.value);
+            reverbDecayValue.textContent = val.toFixed(1);
+            if (reverb) {
+                reverb.decay = val;
+            }
+        });
+        reverbWet.addEventListener('input', (e) => {
+            const val = parseFloat(e.target.value);
+            reverbWetValue.textContent = val.toFixed(2);
+            if (reverb) {
+                reverb.wet.value = val;
+            }
+        });
+
+        // --- アナライザ描画 ---
+        function drawAnalysers() {
+            requestAnimationFrame(drawAnalysers);
+
+            if (!isInitialized || !audioReady) return;
+            
+            // 波形 (Waveform)
+            const wWidth = waveformCanvas.clientWidth;
+            const wHeight = waveformCanvas.clientHeight;
+            waveformCtx.clearRect(0, 0, wWidth, wHeight);
+            waveformCtx.strokeStyle = '#3b82f6'; // blue-500
+            waveformCtx.lineWidth = 2;
+
+            if (analyserWave) {
+                const waveform = analyserWave.getValue(); // -1から1の間のFloat32Array
+                waveformCtx.beginPath();
+                for (let i = 0; i < waveform.length; i++) {
+                    const x = (i / waveform.length) * wWidth;
+                    const y = (waveform[i] * 0.5 + 0.5) * wHeight; // -1..1 -> 0..1 -> 0..height
+
+                    if (i === 0) {
+                        waveformCtx.moveTo(x, y);
+                    } else {
+                        waveformCtx.lineTo(x, y);
+                    }
+                }
+                waveformCtx.stroke();
+            }
+
+            // 周波数 (FFT)
+            const fWidth = fftCanvas.clientWidth;
+            const fHeight = fftCanvas.clientHeight;
+            fftCtx.clearRect(0, 0, fWidth, fHeight);
+            
+            if (analyserFft) {
+                const fft = analyserFft.getValue(); // dB値のFloat32Array
+                const barWidth = (fWidth / fft.length) * 1.5;
+                const minDb = analyserFft.minDecibels;
+                const maxDb = analyserFft.maxDecibels;
+
+                fftCtx.fillStyle = '#60a5fa'; // blue-400
+                
+                for (let i = 0; i < fft.length; i++) {
+                    const db = fft[i];
+                    // dB値を 0..1 の範囲に正規化
+                    const normalized = (db - minDb) / (maxDb - minDb);
+                    const barHeight = normalized * fHeight;
+                    
+                    const x = i * (fWidth / fft.length);
+                    const y = fHeight - barHeight;
+                    
+                    fftCtx.fillRect(x, y, barWidth, barHeight);
+                }
+            }
+        }
+        
+    </script>
 </body>
 </html>
+
