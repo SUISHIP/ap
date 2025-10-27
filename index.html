@@ -1,35 +1,898 @@
-{
-    "candidates": [
-        {
-            "content": {
-                "parts": [
-                    {
-                        "text": "{\n  \"description\": \"全体的な音のバランスを整える設定です。EQで各周波数帯域を微調整し、コンプレッサーでダイナミクスを整え、リバーブで自然な響きを加えています。\",\n  \"settings\": {\n    \"gain\": 0.0,\n    \"pitch\": 0.0,\n    \"rate\": 1.0,\n    \"reverbDecay\": 0.5,\n    \"reverbWet\": 0.1500000059604644800000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000\n    }\n}"
-                    }
-                ],
-                "role": "model"
-            },
-            "finishReason": "STOP",
-            "avgLogprobs": -0.0078326862263229657
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>オーディオプレイヤー</title>
+    <!-- Tailwind CSS CDN -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Tone.js CDN (Web Audio Framework) -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/tone/14.7.77/Tone.js"></script>
+    <style>
+        /* Interフォントの読み込み */
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
+        body {
+            font-family: 'Inter', sans-serif;
+            /* iOSでのオーバースクロールによるバウンスを防ぐ */
+            overscroll-behavior: none;
         }
-    ],
-    "usageMetadata": {
-        "promptTokenCount": 333,
-        "candidatesTokenCount": 2650,
-        "totalTokenCount": 2983,
-        "promptTokensDetails": [
-            {
-                "modality": "TEXT",
-                "tokenCount": 333
+        /* スライダーの見た目をカスタマイズ */
+        input[type="range"] {
+            -webkit-appearance: none;
+            appearance: none;
+            background: transparent;
+            cursor: pointer;
+            width: 100%;
+        }
+        /* スライダー トラック (Chrome, Safari, Edge) */
+        input[type="range"]::-webkit-slider-runnable-track {
+            background: #e5e7eb; /* gray-200 */
+            height: 0.5rem;
+            border-radius: 0.25rem;
+        }
+        /* スライダー つまみ (Chrome, Safari, Edge) */
+        input[type="range"]::-webkit-slider-thumb {
+            -webkit-appearance: none;
+            appearance: none;
+            margin-top: -4px; /* トラックの中央に配置 */
+            background-color: #3b82f6; /* blue-500 */
+            height: 1.25rem;
+            width: 1.25rem;
+            border-radius: 9999px;
+            border: 2px solid white;
+            box-shadow: 0 1px 3px 0 rgba(0, 0, 0, 0.1), 0 1px 2px 0 rgba(0, 0, 0, 0.06);
+        }
+        /* スライダー トラック (Firefox) */
+        input[type="range"]::-moz-range-track {
+            background: #e5e7eb; /* gray-200 */
+            height: 0.5rem;
+            border-radius: 0.25rem;
+        }
+        /* スライダー つまみ (Firefox) */
+        input[type="range"]::-moz-range-thumb {
+            background-color: #3b82f6; /* blue-500 */
+            height: 1.25rem;
+            width: 1.25rem;
+            border-radius: 9999px;
+            border: 2px solid white;
+            box-shadow: 0 1px 3px 0 rgba(0, 0, 0, 0.1), 0 1px 2px 0 rgba(0, 0, 0, 0.06);
+        }
+        /* EQスライダー (縦) */
+        .vertical-slider-container {
+            writing-mode: bt-lr; /* IE/Edge */
+            -webkit-appearance: slider-vertical; /* WebKit */
+            width: 2rem;
+            height: 120px;
+            padding: 0;
+        }
+        .vertical-slider-container input[type="range"] {
+            width: 120px;
+            height: 2rem;
+            margin: 0;
+            transform-origin: 70px 70px; /* 回転の中心を調整 */
+            transform: rotate(-90deg);
+        }
+    </style>
+</head>
+<body class="bg-gray-100 text-gray-800 min-h-screen p-4 md:p-8">
+
+    <div class="max-w-4xl mx-auto bg-white rounded-xl shadow-2xl p-6 md:p-8 space-y-6">
+        
+        <h1 class="text-3xl font-bold text-center text-blue-600">Audio FX Player</h1>
+        
+        <!-- 1. ファイル入力 -->
+        <div class="border-b pb-6">
+            <label for="file-input" class="block text-sm font-medium text-gray-700 mb-2">1. 音声ファイルを選択</label>
+            <input id="file-input" type="file" class="block w-full text-sm text-gray-500
+                file:mr-4 file:py-2 file:px-4
+                file:rounded-full file:border-0
+                file:text-sm file:font-semibold
+                file:bg-blue-50 file:text-blue-700
+                hover:file:bg-blue-100
+                cursor-pointer
+            ">
+            <p id="loading-status" class="text-sm text-blue-600 mt-2"></p>
+        </div>
+
+        <!-- 2. 再生コントロール -->
+        <div class="grid grid-cols-2 md:grid-cols-4 gap-4 border-b pb-6">
+            <button id="play-pause-btn" class="bg-blue-500 hover:bg-blue-600 text-white font-bold py-3 px-4 rounded-lg shadow-md transition duration-200 disabled:opacity-50 disabled:cursor-not-allowed" disabled>
+                再生
+            </button>
+            <button id="stop-btn" class="bg-gray-500 hover:bg-gray-600 text-white font-bold py-3 px-4 rounded-lg shadow-md transition duration-200 disabled:opacity-50 disabled:cursor-not-allowed" disabled>
+                停止
+            </button>
+            
+            <!-- ループ -->
+            <label for="loop-toggle" class="flex items-center justify-center bg-gray-100 p-3 rounded-lg shadow-inner cursor-pointer">
+                <input type="checkbox" id="loop-toggle" class="form-checkbox h-5 w-5 text-blue-600 rounded" checked>
+                <span class="ml-3 font-medium text-gray-700">ループ</span>
+            </label>
+
+            <!-- オフタイマー -->
+            <div class="flex items-center space-x-2 bg-gray-100 p-3 rounded-lg shadow-inner">
+                <input type="number" id="timer-input" min="1" placeholder="分" class="w-16 p-2 rounded-md border border-gray-300 text-sm focus:ring-blue-500 focus:border-blue-500">
+                <button id="timer-btn" class="bg-blue-500 hover:bg-blue-600 text-white text-sm font-medium py-2 px-3 rounded-md shadow transition duration-200">
+                    タイマー
+                </button>
+            </div>
+            <p id="timer-status" class="text-sm text-green-600 col-span-full text-center mt-2"></p>
+        </div>
+
+        <!-- 3. メインコントロール -->
+        <div class="grid md:grid-cols-3 gap-6 border-b pb-6">
+            <!-- マスターGain -->
+            <div class_controls>
+                <label for="gain-slider" class="block text-sm font-medium text-gray-700">マスターGain (<span id="gain-value">0</span> dB)</label>
+                <input id="gain-slider" type="range" min="-40" max="10" value="0" step="0.5" class="mt-2">
+            </div>
+            <!-- 再生速度 (ピッチ不変) -->
+            <div class_controls>
+                <label for="rate-slider" class="block text-sm font-medium text-gray-700">再生速度 (<span id="rate-value">1.00</span> x)</label>
+                <input id="rate-slider" type="range" min="0.5" max="2.0" value="1.0" step="0.01" class="mt-2">
+            </div>
+            <!-- ピッチベンド (速度不変) -->
+            <div class_controls>
+                <label for="pitch-slider" class="block text-sm font-medium text-gray-700">ピッチ (<span id="pitch-value">0</span> セント)</label>
+                <input id="pitch-slider" type="range" min="-1200" max="1200" value="0" step="1" class="mt-2">
+            </div>
+        </div>
+
+        <!-- 4. エフェクト -->
+        <div class="space-y-6 border-b pb-6">
+            <h2 class="text-xl font-semibold text-gray-800">エフェクト</h2>
+            
+            <!-- コンプレッサー & ディストーション -->
+            <div class="grid md:grid-cols-2 gap-6">
+                <!-- コンプレッサー -->
+                <div>
+                    <h3 class="font-medium text-gray-700 mb-2">コンプレッサー</h3>
+                    <div class="p-4 bg-gray-50 rounded-lg shadow-inner space-y-3">
+                        <div>
+                            <label for="comp-threshold" class="text-sm">Threshold (<span id="comp-threshold-value">-24</span> dB)</label>
+                            <input id="comp-threshold" type="range" min="-60" max="0" value="-24" step="1">
+                        </div>
+                        <div>
+                            <label for="comp-ratio" class="text-sm">Ratio (<span id="comp-ratio-value">12</span>:1)</label>
+                            <input id="comp-ratio" type="range" min="1" max="20" value="12" step="0.5">
+                        </div>
+                    </div>
+                </div>
+                <!-- ディストーション -->
+                <div>
+                    <h3 class="font-medium text-gray-700 mb-2">ディストーション</h3>
+                    <div class="p-4 bg-gray-50 rounded-lg shadow-inner space-y-3">
+                        <div>
+                            <label for="dist-amount" class="text-sm">Amount (<span id="dist-amount-value">0.00</span>)</label>
+                            <input id="dist-amount" type="range" min="0" max="1" value="0" step="0.01">
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- 5バンドイコライザー -->
+            <div>
+                <h3 class="font-medium text-gray-700 mb-2">5バンド イコライザー (dB)</h3>
+                <div class="p-4 bg-gray-50 rounded-lg shadow-inner flex justify-around items-end space-x-2">
+                    <!-- 60Hz -->
+                    <div class="text-center">
+                        <span id="eq1-value" class="text-sm font-medium">0.0</span>
+                        <div class="vertical-slider-container my-2">
+                            <input id="eq1" type="range" min="-20" max="20" value="0" step="0.5" class="eq-slider">
+                        </div>
+                        <label class="text-xs font-medium text-gray-600">60Hz</label>
+                    </div>
+                    <!-- 250Hz -->
+                    <div class="text-center">
+                        <span id="eq2-value" class="text-sm font-medium">0.0</span>
+                        <div class="vertical-slider-container my-2">
+                            <input id="eq2" type="range" min="-20" max="20" value="0" step="0.5" class="eq-slider">
+                        </div>
+                        <label class="text-xs font-medium text-gray-600">250Hz</label>
+                    </div>
+                    <!-- 1kHz -->
+                    <div class="text-center">
+                        <span id="eq3-value" class="text-sm font-medium">0.0</span>
+                        <div class="vertical-slider-container my-2">
+                            <input id="eq3" type="range" min="-20" max="20" value="0" step="0.5" class="eq-slider">
+                        </div>
+                        <label class="text-xs font-medium text-gray-600">1kHz</label>
+                    </div>
+                    <!-- 4kHz -->
+                    <div class="text-center">
+                        <span id="eq4-value" class="text-sm font-medium">0.0</span>
+                        <div class="vertical-slider-container my-2">
+                            <input id="eq4" type="range" min="-20" max="20" value="0" step="0.5" class="eq-slider">
+                        </div>
+                        <label class="text-xs font-medium text-gray-600">4kHz</label>
+                    </div>
+                    <!-- 10kHz -->
+                    <div class="text-center">
+                        <span id="eq5-value" class="text-sm font-medium">0.0</span>
+                        <div class="vertical-slider-container my-2">
+                            <input id="eq5" type="range" min="-20" max="20" value="0" step="0.5" class="eq-slider">
+                        </div>
+                        <label class="text-xs font-medium text-gray-600">10kHz</label>
+                    </div>
+                </div>
+            </div>
+
+            <!-- リバーブ -->
+            <div>
+                <h3 class="font-medium text-gray-700 mb-2">リバーブ</h3>
+                    <div class="p-4 bg-gray-50 rounded-lg shadow-inner space-y-3">
+                    <div>
+                        <label for="reverb-decay" class="text-sm">Decay (s) (<span id="reverb-decay-value">1.5</span>)</label>
+                        <input id="reverb-decay" type="range" min="0.1" max="10" value="1.5" step="0.1">
+                    </div>
+                    <div>
+                        <label for="reverb-wet" class="text-sm">Wet (<span id="reverb-wet-value">0.00</span>)</label>
+                        <input id="reverb-wet" type="range" min="0" max="1" value="0" step="0.01">
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- 4.5.  Gemini AI アシスタント -->
+        <div class="space-y-4 border-b pb-6">
+            <h2 class="text-xl font-semibold text-gray-800">✨ AI エフェクト アシスタント</h2>
+            <div class="p-4 bg-gradient-to-br from-blue-50 to-purple-50 rounded-lg shadow-inner space-y-3">
+                <label for="ai-prompt" class="block text-sm font-medium text-gray-700">どのようなサウンドにしたいですか？</label>
+                <textarea id="ai-prompt" rows="2" class="w-full p-2 rounded-md border border-gray-300 focus:ring-blue-500 focus:border-blue-500" placeholder="例: ポッドキャスト風, ボーカルをクリアに, AMラジオ風のサウンド"></textarea>
+                <button id="ai-generate-btn" class="w-full bg-gradient-to-r from-blue-500 to-purple-600 hover:from-blue-600 hover:to-purple-700 text-white font-bold py-3 px-4 rounded-lg shadow-md transition duration-200">
+                    設定を生成
+                </button>
+                <div id="ai-response-area" class="mt-3 p-3 bg-white rounded-md border border-gray-200 min-h-[50px] text-sm text-gray-700">
+                    <p id="ai-status" class="text-gray-500">ここにAIからの提案が表示されます。</p>
+                </div>
+                <button id="ai-apply-btn" class="w-full bg-green-500 hover:bg-green-600 text-white font-bold py-2 px-4 rounded-lg shadow-md transition duration-200 disabled:opacity-50 disabled:cursor-not-allowed" disabled>
+                    設定を適用
+                </button>
+            </div>
+        </div>
+
+
+        <!-- 5. ビジュアルアナライザ -->
+        <div>
+            <h2 class="text-xl font-semibold text-gray-800 mb-4">ビジュアルアナライザ</h2>
+            <div class="grid md:grid-cols-2 gap-4">
+                <div>
+                    <h3 class="font-medium text-gray-700 mb-2 text-center">波形 (Waveform)</h3>
+                    <canvas id="waveform-canvas" class="w-full h-32 bg-gray-900 rounded-lg shadow-inner"></canvas>
+                </div>
+                <div>
+                    <h3 class="font-medium text-gray-700 mb-2 text-center">周波数 (FFT)</h3>
+                    <canvas id="fft-canvas" class="w-full h-32 bg-gray-900 rounded-lg shadow-inner"></canvas>
+                </div>
+            </div>
+        </div>
+
+    </div>
+
+    <script type="module">
+        // DOM要素の取得
+        const fileInput = document.getElementById('file-input');
+        const loadingStatus = document.getElementById('loading-status');
+        const playPauseBtn = document.getElementById('play-pause-btn');
+        const stopBtn = document.getElementById('stop-btn');
+        const loopToggle = document.getElementById('loop-toggle');
+        const timerInput = document.getElementById('timer-input');
+        const timerBtn = document.getElementById('timer-btn');
+        const timerStatus = document.getElementById('timer-status');
+
+        const gainSlider = document.getElementById('gain-slider');
+        const gainValue = document.getElementById('gain-value');
+        const rateSlider = document.getElementById('rate-slider');
+        const rateValue = document.getElementById('rate-value');
+        const pitchSlider = document.getElementById('pitch-slider');
+        const pitchValue = document.getElementById('pitch-value');
+
+        const compThreshold = document.getElementById('comp-threshold');
+        const compThresholdValue = document.getElementById('comp-threshold-value');
+        const compRatio = document.getElementById('comp-ratio');
+        const compRatioValue = document.getElementById('comp-ratio-value');
+        const distAmount = document.getElementById('dist-amount');
+        const distAmountValue = document.getElementById('dist-amount-value');
+
+        const reverbDecay = document.getElementById('reverb-decay');
+        const reverbDecayValue = document.getElementById('reverb-decay-value');
+        const reverbWet = document.getElementById('reverb-wet');
+        const reverbWetValue = document.getElementById('reverb-wet-value');
+
+        // ★ 修正: aiKeyを追加し、AI設定との対応を明確化
+        const eqSliders = [
+            { el: document.getElementById('eq1'), freq: 60, valEl: document.getElementById('eq1-value'), aiKey: 'eq1_60hz' },
+            { el: document.getElementById('eq2'), freq: 250, valEl: document.getElementById('eq2-value'), aiKey: 'eq2_250hz' },
+            { el: document.getElementById('eq3'), freq: 1000, valEl: document.getElementById('eq3-value'), aiKey: 'eq3_1khz' },
+            { el: document.getElementById('eq4'), freq: 4000, valEl: document.getElementById('eq4-value'), aiKey: 'eq4_4khz' },
+            { el: document.getElementById('eq5'), freq: 10000, valEl: document.getElementById('eq5-value'), aiKey: 'eq5_10khz' }
+        ];
+
+        const waveformCanvas = document.getElementById('waveform-canvas');
+        const waveformCtx = waveformCanvas.getContext('2d');
+        const fftCanvas = document.getElementById('fft-canvas');
+        const fftCtx = fftCanvas.getContext('2d');
+
+        // AIアシスタントDOM
+        const aiPrompt = document.getElementById('ai-prompt');
+        const aiGenerateBtn = document.getElementById('ai-generate-btn');
+        const aiResponseArea = document.getElementById('ai-response-area');
+        const aiStatus = document.getElementById('ai-status');
+        const aiApplyBtn = document.getElementById('ai-apply-btn');
+
+
+        // Tone.jsのセットアップ
+        let player, masterGain, compressor, distortion, eqFilters, reverb, analyserWave, analyserFft;
+        let isPlaying = false;
+        let isInitialized = false;
+        let audioReady = false;
+        let stopTimer = null;
+        let currentAiSettings = null; // AIが生成した設定を保持
+
+        // アナライザのキャンバスサイズ設定
+        function setupCanvas(canvas, ctx) {
+            const container = canvas.parentElement;
+            canvas.width = container.clientWidth;
+            canvas.height = canvas.offsetHeight;
+        }
+
+        // オーディオノードの初期化と接続
+        function initializeAudioNodes() {
+            if (isInitialized) return;
+
+            // Tone.jsノードの初期化
+            masterGain = new Tone.Gain({ gain: parseFloat(gainSlider.value), units: 'decibels' }).toDestination();
+            analyserWave = new Tone.Analyser('waveform', 1024);
+            analyserFft = new Tone.Analyser('fft', 256);
+            reverb = new Tone.Reverb({
+                decay: parseFloat(reverbDecay.value),
+                wet: parseFloat(reverbWet.value)
+            }).toDestination();
+            compressor = new Tone.Compressor({
+                threshold: parseFloat(compThreshold.value),
+                ratio: parseFloat(compRatio.value)
+            });
+            
+            // 5バンドEQ (フィルター) の作成
+            eqFilters = eqSliders.map(eq => {
+                return new Tone.Filter({
+                    type: 'peaking',
+                    frequency: eq.freq,
+                    Q: 1, // Q値 (固定)
+                    gain: parseFloat(eq.el.value)
+                });
+            });
+
+            distortion = new Tone.Distortion(parseFloat(distAmount.value));
+            
+            // 接続チェーン: Player -> Distortion -> Compressor -> EQ Filters -> Reverb -> Analysers -> MasterGain -> Destination
+            distortion.connect(compressor);
+            // ...eqFilters は配列なので、スプレッド構文でチェーンに展開
+            compressor.chain(...eqFilters);
+            eqFilters[eqFilters.length - 1].connect(reverb);
+            reverb.connect(analyserWave);
+            analyserWave.connect(analyserFft);
+            analyserFft.connect(masterGain);
+            masterGain.connect(Tone.Destination);
+
+            // アナライザの描画ループ開始
+            setupCanvas(waveformCanvas, waveformCtx);
+            setupCanvas(fftCanvas, fftCtx);
+            drawAnalysers();
+
+            isInitialized = true;
+        }
+
+        // ファイル入力
+        fileInput.addEventListener('change', async (e) => {
+            const file = e.target.files[0];
+            if (!file) return;
+
+            loadingStatus.textContent = '読み込み中...';
+            playPauseBtn.disabled = true;
+            stopBtn.disabled = true;
+            audioReady = false;
+
+            if (player) {
+                player.stop();
+                player.unsync(); // Transportとの同期を解除
+                player.dispose(); // 古いプレイヤーを破棄
             }
-        ],
-        "candidatesTokensDetails": [
-            {
-                "modality": "TEXT",
-                "tokenCount": 2650
+
+            // Transportを停止・リセット
+            if (isInitialized) {
+                Tone.Transport.stop();
+                Tone.Transport.position = 0;
+                isPlaying = false;
+                playPauseBtn.textContent = '再生';
             }
-        ]
-    },
-    "modelVersion": "gemini-2.0-flash",
-    "responseId": "taP_aLGDIs2Jvr0PvrjJ4QQ"
-}
+
+            const url = URL.createObjectURL(file);
+            
+            try {
+                await Tone.start();
+                initializeAudioNodes();
+
+                player = new Tone.Player(url, () => {
+                    // 読み込み完了コールバック
+                    loadingStatus.textContent = `読み込み完了: ${file.name}`;
+                    playPauseBtn.disabled = false;
+                    stopBtn.disabled = false;
+                    audioReady = true;
+
+                    // プレイヤーをエフェクトチェーンの先頭に接続
+                    if (distortion) {
+                        player.connect(distortion);
+                    } else {
+                        // 異常系: distortionノードがなければmasterGainに直接接続
+                        player.connect(masterGain);
+                    }
+
+                    // ループ機能の初期設定をUIに同期させる
+                    const isLooping = loopToggle.checked;
+                    player.loop = isLooping; 
+                    
+                    if (isInitialized) {
+                        Tone.Transport.loopEnd = player.buffer.duration;
+                        Tone.Transport.loopStart = 0;
+                        Tone.Transport.loop = isLooping;
+                    }
+                    
+                    // 初期ピッチ/レート設定の適用
+                    const initialRate = parseFloat(rateSlider.value);
+                    const initialUserPitch = parseFloat(pitchSlider.value);
+                    const initialCorrection = 1200 * Math.log2(1 / initialRate); 
+
+                    player.playbackRate = initialRate;
+                    player.detune = initialUserPitch + initialCorrection;
+
+                    // Transportに同期して再生（Transportはまだ開始していない）
+                    player.sync().start(0);
+                });
+                
+                // 再生終了時の処理 (Transport連携)
+                player.onstop = () => {
+                    if (Tone.Transport.state === 'started' && !player.loop) {
+                         Tone.Transport.stop();
+                         Tone.Transport.position = 0;
+                         isPlaying = false;
+                         playPauseBtn.textContent = '再生';
+                    }
+                };
+                
+            } catch (error) {
+                loadingStatus.textContent = `エラー: ファイルの読み込みに失敗しました (${error.message})`;
+                console.error("Audio Load Error:", error);
+            }
+        });
+
+        // 再生・一時停止
+        playPauseBtn.addEventListener('click', async () => {
+            if (!audioReady) return;
+            await Tone.start();
+            initializeAudioNodes();
+
+            if (Tone.Transport.state === 'started') {
+                Tone.Transport.pause();
+                isPlaying = false;
+                playPauseBtn.textContent = '再生';
+            } else {
+                Tone.Transport.start();
+                isPlaying = true;
+                playPauseBtn.textContent = '一時停止';
+            }
+        });
+
+        // 停止
+        stopBtn.addEventListener('click', () => {
+            if (!audioReady) return;
+            Tone.Transport.stop();
+            Tone.Transport.position = 0; 
+            isPlaying = false;
+            playPauseBtn.textContent = '再生';
+        });
+
+        // ループ
+        loopToggle.addEventListener('change', (e) => {
+            const isLooping = e.target.checked;
+            if (player) {
+                player.loop = isLooping;
+                if (isInitialized) {
+                    Tone.Transport.loop = isLooping;
+                    if (player.buffer) {
+                        Tone.Transport.loopEnd = player.buffer.duration;
+                    }
+                }
+            }
+        });
+
+        // オフタイマー
+        timerBtn.addEventListener('click', () => {
+            if (stopTimer) {
+                clearTimeout(stopTimer);
+                stopTimer = null;
+                timerStatus.textContent = 'タイマーをキャンセルしました。';
+                return;
+            }
+
+            const minutes = parseInt(timerInput.value);
+            if (isNaN(minutes) || minutes <= 0) {
+                timerStatus.textContent = '有効な分数 (1分以上) を入力してください。';
+                return;
+            }
+
+            const ms = minutes * 60 * 1000;
+            timerStatus.textContent = `${minutes}分後に自動停止します。`;
+            timerInput.value = '';
+
+            stopTimer = setTimeout(() => {
+                if (isPlaying) {
+                    Tone.Transport.stop();
+                    Tone.Transport.position = 0;
+                    isPlaying = false;
+                    playPauseBtn.textContent = '再生';
+                }
+                timerStatus.textContent = 'タイマー終了 - 自動停止しました。';
+                stopTimer = null;
+            }, ms);
+        });
+
+        // --- スライダーコントロール ---
+
+        // Gain
+        gainSlider.addEventListener('input', (e) => {
+            const db = parseFloat(e.target.value);
+            gainValue.textContent = db.toFixed(1);
+            if (masterGain) {
+                masterGain.gain.value = db;
+            }
+        });
+
+        // 速度とピッチの連動制御 (再生速度)
+        rateSlider.addEventListener('input', (e) => {
+            const rate = parseFloat(e.target.value);
+            rateValue.textContent = rate.toFixed(2);
+            if (player) {
+                // 1. 再生速度の変更
+                player.playbackRate = rate;
+
+                // 2. ピッチ補正: 速度を変えてもピッチスライダーの値（userPitch）を維持する
+                const speedCorrection = 1200 * Math.log2(1 / rate);
+                const userPitch = parseFloat(pitchSlider.value);
+                player.detune = userPitch + speedCorrection;
+            }
+        });
+
+        // ピッチベンド (速度不変)
+        pitchSlider.addEventListener('input', (e) => {
+            const userPitch = parseFloat(e.target.value);
+            pitchValue.textContent = userPitch.toFixed(0);
+            if (player) {
+                // ピッチ補正を再計算して加算
+                const rate = parseFloat(rateSlider.value);
+                const speedCorrection = 1200 * Math.log2(1 / rate);
+                // 最終ピッチ = ユーザーが設定したピッチ + 速度変化を打ち消すための逆補正
+                player.detune = userPitch + speedCorrection;
+            }
+        });
+
+        // コンプレッサー
+        compThreshold.addEventListener('input', (e) => {
+            const val = parseFloat(e.target.value);
+            compThresholdValue.textContent = val.toFixed(0);
+            if (compressor) compressor.threshold.value = val;
+        });
+
+        compRatio.addEventListener('input', (e) => {
+            const val = parseFloat(e.target.value);
+            compRatioValue.textContent = val.toFixed(1);
+            if (compressor) compressor.ratio.value = val;
+        });
+
+        // ディストーション
+        distAmount.addEventListener('input', (e) => {
+            const val = parseFloat(e.target.value);
+            distAmountValue.textContent = val.toFixed(2);
+            if (distortion) distortion.distortion = val;
+        });
+
+        // EQ
+        eqSliders.forEach((eq, index) => {
+            eq.el.addEventListener('input', (e) => {
+                const gain = parseFloat(e.target.value);
+                eq.valEl.textContent = gain.toFixed(1); // 外見の更新
+                if (eqFilters && eqFilters[index]) {
+                    eqFilters[index].gain.value = gain; // 内部（Tone.js）の更新
+                }
+            });
+        });
+
+        // リバーブ
+        reverbDecay.addEventListener('input', (e) => {
+            const val = parseFloat(e.target.value);
+            reverbDecayValue.textContent = val.toFixed(1);
+            if (reverb) reverb.decay = val;
+        });
+
+        reverbWet.addEventListener('input', (e) => {
+            const val = parseFloat(e.target.value);
+            reverbWetValue.textContent = val.toFixed(2);
+            if (reverb) reverb.wet.value = val;
+        });
+
+        // --- AI アシスタント機能 ---
+
+        // AI設定値をスライダーとUI表示に適用するヘルパー関数
+        const setSliderValue = (slider, value, valueSpan = null, precision = 1) => {
+            if (value !== undefined && slider) {
+                // 値を浮動小数点数に変換
+                const floatValue = parseFloat(value);
+                if (isNaN(floatValue)) {
+                    console.warn(`Skipping invalid value for slider ${slider.id}: ${value}`);
+                    return;
+                }
+
+                // 範囲チェックと丸め
+                const min = parseFloat(slider.min);
+                const max = parseFloat(slider.max);
+                const finalValue = Math.max(min, Math.min(max, floatValue));
+                
+                // 1. スライダーの値を設定
+                slider.value = finalValue;
+                
+                // 2. UI表示（span）のテキストを明示的に更新 
+                if (valueSpan) {
+                    valueSpan.textContent = finalValue.toFixed(precision);
+                }
+
+                // 3. 'input'イベントを発火させてTone.jsのロジックをトリガー (内部反映)
+                slider.dispatchEvent(new Event('input')); 
+            }
+        };
+
+
+        // Gemini API呼び出し
+        async function callGeminiApi(prompt) {
+            aiStatus.textContent = 'AIが設定を生成中です... しばらくお待ちください。';
+            aiGenerateBtn.disabled = true;
+            aiApplyBtn.disabled = true;
+
+            const apiKey = "AIzaSyAGYKJmlW7YOA5ddTKyMMhxYNhlrjaRl6M";
+            let apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent`;
+
+            if (apiKey) {
+                apiUrl += `?key=${apiKey}`;
+            }
+
+            const systemPrompt = `あなたはプロのオーディオエンジニアです。
+ユーザーの要望に沿ったエフェクト設定を提案してください。
+回答は必ずJSON形式で、提案の簡単な説明（description）と、以下のキーを含む設定オブジェクト（settings）を返してください。
+- gain (dB, -40から10)
+- pitch (セント, -1200から1200)
+- rate (倍率, 0.5から2.0)
+- compressorThreshold (dB, -60から0)
+- compressorRatio (1から20)
+- distortionAmount (0.0から1.0)
+- eq1_60hz (dB, -20から20)
+- eq2_250hz (dB, -20から20)
+- eq3_1khz (dB, -20から20)
+- eq4_4khz (dB, -20から20)
+- eq5_10khz (dB, -20から20)
+- reverbDecay (秒, 0.1から10)
+- reverbWet (0.0から1.0)
+
+数値は必ず指定された範囲内に収めてください。`;
+
+            // JSONスキーマの定義
+            const schema = {
+                type: "OBJECT",
+                properties: {
+                    "description": { "type": "STRING" },
+                    "settings": {
+                        type: "OBJECT",
+                        properties: {
+                            "gain": { "type": "NUMBER" },
+                            "pitch": { "type": "NUMBER" },
+                            "rate": { "type": "NUMBER" },
+                            "compressorThreshold": { "type": "NUMBER" },
+                            "compressorRatio": { "type": "NUMBER" },
+                            "distortionAmount": { "type": "NUMBER" },
+                            "eq1_60hz": { "type": "NUMBER" },
+                            "eq2_250hz": { "type": "NUMBER" },
+                            "eq3_1khz": { "type": "NUMBER" },
+                            "eq4_4khz": { "type": "NUMBER" },
+                            "eq5_10khz": { "type": "NUMBER" },
+                            "reverbDecay": { "type": "NUMBER" },
+                            "reverbWet": { "type": "NUMBER" }
+                        }
+                    }
+                }
+            };
+
+            const payload = {
+                contents: [{ parts: [{ text: prompt }] }],
+                systemInstruction: {
+                    parts: [{ text: systemPrompt }]
+                },
+                generationConfig: {
+                    responseMimeType: "application/json",
+                    responseSchema: schema
+                }
+            };
+
+            // リトライ処理（Exponential Backoff）
+            const MAX_RETRIES = 3;
+            try { 
+                for (let i = 0; i < MAX_RETRIES; i++) {
+                    try {
+                        const response = await fetch(apiUrl, {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify(payload)
+                        });
+
+                        if (!response.ok) {
+                            if (response.status === 403) {
+                                 throw new Error("403: APIキーが無効か、認証されていません。外部環境で実行する場合は、コード内のapiKeyを有効なキーに置き換えてください。");
+                            }
+                            if (i < MAX_RETRIES - 1) {
+                                await new Promise(resolve => setTimeout(resolve, Math.pow(2, i) * 1000));
+                                continue;
+                            }
+                            throw new Error(`API error: ${response.status} ${response.statusText}`);
+                        }
+
+                        const result = await response.json();
+                        
+                        if (result.candidates && result.candidates[0].content?.parts?.[0]?.text) {
+                            const jsonText = result.candidates[0].content.parts[0].text;
+                            
+                            // JSON文字列のクリーンアップ
+                            const cleanedJsonText = jsonText.trim();
+                            
+                            let parsedJson;
+                            try {
+                                parsedJson = JSON.parse(cleanedJsonText);
+                            } catch (e) {
+                                console.error("Failed to parse JSON:", cleanedJsonText);
+                                throw new Error("AIからのレスポンス形式が不正です。JSONパースエラー。");
+                            }
+
+                            // レスポンスを処理
+                            aiStatus.textContent = parsedJson.description || "AIからの提案:";
+                            currentAiSettings = parsedJson.settings;
+                            aiApplyBtn.disabled = false;
+                            
+                            return; // 成功したらループを抜けて finallyへ
+                        } else {
+                            throw new Error("AIからの有効なレスポンスがありませんでした。");
+                        }
+                    } catch (error) {
+                        if (i === MAX_RETRIES - 1) {
+                            throw error;
+                        }
+                        await new Promise(resolve => setTimeout(resolve, Math.pow(2, i) * 1000));
+                    }
+                }
+            } catch (error) {
+                // エラーが発生した場合、ここで捕捉して再スロー
+                throw error;
+            } finally {
+                 // 成功・失敗に関わらず、最後にボタンを再有効化
+                aiGenerateBtn.disabled = false;
+            }
+        }
+
+        // AI設定をスライダーとUIに適用する 
+        function applyAiSettings() {
+            if (!currentAiSettings) return;
+
+            if (!player) {
+                aiStatus.textContent = "エラー: AI設定を適用するには、先に音声ファイルを読み込んでください。";
+                return;
+            }
+
+            const settings = currentAiSettings;
+
+            // 各スライダーに値を適用 (スライダー、値、値表示span、小数点以下の桁数)
+            setSliderValue(gainSlider, settings.gain, gainValue, 1);
+            
+            // ピッチ/レート連動ロジックのため、rateを先に、pitchを後に設定する
+            setSliderValue(rateSlider, settings.rate, rateValue, 2); 
+            setSliderValue(pitchSlider, settings.pitch, pitchValue, 0); // pitchはセントなので小数点なし
+
+            // コンプレッサー、ディストーション
+            setSliderValue(compThreshold, settings.compressorThreshold, compThresholdValue, 0); // thresholdはdBなので小数点なし
+            setSliderValue(compRatio, settings.compressorRatio, compRatioValue, 1);
+            setSliderValue(distAmount, settings.distortionAmount, distAmountValue, 2);
+
+            // ★ 修正: EQをループで適用 (堅牢化)
+            eqSliders.forEach((eq) => {
+                const aiValue = settings[eq.aiKey];
+                setSliderValue(eq.el, aiValue, eq.valEl, 1); // eq.valElでUI表示も同時に更新
+            });
+
+            // リバーブ
+            setSliderValue(reverbDecay, settings.reverbDecay, reverbDecayValue, 1);
+            setSliderValue(reverbWet, settings.reverbWet, reverbWetValue, 2);
+
+            aiStatus.textContent = "AIによる設定を適用しました。UIに反映されています。";
+        }
+
+        // イベントリスナー
+        aiGenerateBtn.addEventListener('click', () => {
+            const prompt = aiPrompt.value;
+            if (prompt.trim()) {
+                aiStatus.textContent = ''; 
+                callGeminiApi(prompt).catch(error => {
+                    aiStatus.textContent = `エラー: AIとの通信に失敗しました。詳細：${error.message}`;
+                    console.error("AI Generation Error:", error);
+                });
+            } else {
+                aiStatus.textContent = "テキストボックスに要望を入力してください。";
+            }
+        });
+
+        aiApplyBtn.addEventListener('click', applyAiSettings);
+
+
+        // --- アナライザ描画 ---
+        function drawAnalysers() {
+            requestAnimationFrame(drawAnalysers);
+
+            if (!isInitialized) return;
+
+            // Waveform (時間領域)
+            const waveData = analyserWave.getValue();
+            const waveWidth = waveformCanvas.width;
+            const waveHeight = waveformCanvas.height;
+            waveformCtx.clearRect(0, 0, waveWidth, waveHeight);
+            waveformCtx.lineWidth = 2;
+            waveformCtx.strokeStyle = 'rgb(66, 153, 225)'; // Blue-500
+            waveformCtx.beginPath();
+
+            const sliceWidth = waveWidth * 1.0 / waveData.length;
+            let x = 0;
+
+            for (let i = 0; i < waveData.length; i++) {
+                const v = waveData[i];
+                const y = (v + 1) / 2 * waveHeight;
+
+                if (i === 0) {
+                    waveformCtx.moveTo(x, y);
+                } else {
+                    waveformCtx.lineTo(x, y);
+                }
+
+                x += sliceWidth;
+            }
+
+            waveformCtx.lineTo(waveWidth, waveHeight / 2);
+            waveformCtx.stroke();
+
+            // FFT (周波数領域)
+            const fftData = analyserFft.getValue();
+            const fftWidth = fftCanvas.width;
+            const fftHeight = fftCanvas.height;
+            fftCtx.clearRect(0, 0, fftWidth, fftHeight);
+
+            const barWidth = (fftWidth / fftData.length) * 2.5;
+            let barX = 0;
+
+            for (let i = 0; i < fftData.length; i++) {
+                // dB値を高さに変換 (-100dBから0dBの範囲を0から100%にマッピング)
+                let percent = (fftData[i] + 100) / 100;
+                let barHeight = percent * fftHeight;
+
+                // 最小値を設定してバーが消えないようにする
+                barHeight = Math.max(2, barHeight); 
+
+                fftCtx.fillStyle = `rgb(109, 40, 217, ${percent + 0.2})`; // Purple-700
+                fftCtx.fillRect(barX, fftHeight - barHeight, barWidth, barHeight);
+
+                barX += barWidth + 1;
+            }
+        } 
+    </script>
+</body>
+</html>
