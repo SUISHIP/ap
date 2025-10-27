@@ -233,14 +233,14 @@
             </div>
         </div>
 
-        <!-- 4.5. ✨ Gemini AI アシスタント -->
+        <!-- 4.5.  Gemini AI アシスタント -->
         <div class="space-y-4 border-b pb-6">
             <h2 class="text-xl font-semibold text-gray-800">✨ AI エフェクト アシスタント</h2>
             <div class="p-4 bg-gradient-to-br from-blue-50 to-purple-50 rounded-lg shadow-inner space-y-3">
                 <label for="ai-prompt" class="block text-sm font-medium text-gray-700">どのようなサウンドにしたいですか？</label>
                 <textarea id="ai-prompt" rows="2" class="w-full p-2 rounded-md border border-gray-300 focus:ring-blue-500 focus:border-blue-500" placeholder="例: ポッドキャスト風, ボーカルをクリアに, AMラジオ風のサウンド"></textarea>
                 <button id="ai-generate-btn" class="w-full bg-gradient-to-r from-blue-500 to-purple-600 hover:from-blue-600 hover:to-purple-700 text-white font-bold py-3 px-4 rounded-lg shadow-md transition duration-200">
-                    ✨ 設定を生成
+                    設定を生成
                 </button>
                 <div id="ai-response-area" class="mt-3 p-3 bg-white rounded-md border border-gray-200 min-h-[50px] text-sm text-gray-700">
                     <p id="ai-status" class="text-gray-500">ここにAIからの提案が表示されます。</p>
@@ -310,7 +310,6 @@
         if (!document.getElementById('eq4-value')) {
              eqSliders[3].valEl = document.getElementById('eq4-4hz-value') || document.getElementById('eq4-value');
         }
-
 
         const waveformCanvas = document.getElementById('waveform-canvas');
         const waveformCtx = waveformCanvas.getContext('2d');
@@ -431,8 +430,7 @@
                         Tone.Transport.loop = player.loop; // playerのloop設定と同期
                     }
                     
-                    // --- 修正: 初期ピッチ/レート設定の適用 ---
-                    // ファイルロード時に、スライダーの現在の値を強制的に適用し、連動ロジックを開始させる
+                    // 初期ピッチ/レート設定の適用
                     const initialRate = parseFloat(rateSlider.value);
                     const initialUserPitch = parseFloat(pitchSlider.value);
                     // 速度によるピッチ変化を打ち消すための補正 (rate=1.0のとき補正は0になる)
@@ -440,7 +438,6 @@
 
                     player.playbackRate = initialRate;
                     player.detune = initialUserPitch + initialCorrection;
-                    // --- ------------------------------------ ---
 
                     // Transportに同期して再生（Transportはまだ開始していない）
                     player.sync().start(0);
@@ -624,7 +621,13 @@
             aiApplyBtn.disabled = true;
 
             const apiKey = "AIzaSyAGYKJmlW7YOA5ddTKyMMhxYNhlrjaRl6M";
-            const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-09-2025:generateContent`;
+            const modelName = "gemini-2.0-flash:generateContent";
+            let apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent`;
+
+            // 外部で実行する際にAPIキーが必要なため、URLに追加
+            if (apiKey) {
+                apiUrl += `?key=${apiKey}`;
+            }
 
             const systemPrompt = `あなたはプロのオーディオエンジニアです。
 ユーザーの要望に沿ったエフェクト設定を提案してください。
@@ -688,14 +691,14 @@
                 try {
                     const response = await fetch(apiUrl, {
                         method: 'POST',
-                        // 外部で実行する場合は、APIキーをクエリパラメータに追加する必要があります。
-                        // 例: const response = await fetch(`${apiUrl}?key=${apiKey}`, { ...
                         headers: { 'Content-Type': 'application/json' },
                         body: JSON.stringify(payload)
                     });
 
                     if (!response.ok) {
-                        // 403などのエラーの場合、リトライするかエラーをスロー
+                        if (response.status === 403) {
+                             throw new Error("403: APIキーが無効か、認証されていません。外部環境で実行する場合は、コード内のapiKeyを有効なキーに置き換えてください。");
+                        }
                         if (i < MAX_RETRIES - 1) {
                             await new Promise(resolve => setTimeout(resolve, Math.pow(2, i) * 1000));
                             continue;
@@ -724,8 +727,6 @@
                     await new Promise(resolve => setTimeout(resolve, Math.pow(2, i) * 1000));
                 }
             }
-
-
         }
 
         // AI設定をスライダーに適用する
@@ -774,7 +775,7 @@
             if (prompt.trim()) {
                 aiStatus.textContent = ''; 
                 callGeminiApi(prompt).catch(error => {
-                    aiStatus.textContent = `エラー: AIとの通信に失敗しました。認証情報をご確認ください。（${error.message}）`;
+                    aiStatus.textContent = `エラー: AIとの通信に失敗しました。詳細：${error.message}`;
                     aiGenerateBtn.disabled = false;
                     aiApplyBtn.disabled = true;
                     console.error("AI Generation Error:", error);
