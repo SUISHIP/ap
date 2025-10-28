@@ -235,7 +235,7 @@
 
         <!-- 4.5.  Gemini AI アシスタント -->
         <div class="space-y-4 border-b pb-6">
-            <h2 class="text-xl font-semibold text-gray-800">✨ AI エフェクト アシスタント</h2>
+            <h2 class="text-xl font-semibold text-gray-800"> AI エフェクト アシスタント</h2>
             <div class="p-4 bg-gradient-to-br from-blue-50 to-purple-50 rounded-lg shadow-inner space-y-3">
                 <label for="ai-prompt" class="block text-sm font-medium text-gray-700">どのようなサウンドにしたいですか？</label>
                 <textarea id="ai-prompt" rows="2" class="w-full p-2 rounded-md border border-gray-300 focus:ring-blue-500 focus:border-blue-500" placeholder="例: ポッドキャスト風, ボーカルをクリアに, AMラジオ風のサウンド"></textarea>
@@ -338,50 +338,61 @@
 
         // オーディオノードの初期化と接続
         function initializeAudioNodes() {
-            if (isInitialized) return;
+    if (isInitialized) return;
 
-            // Tone.jsノードの初期化
-            masterGain = new Tone.Gain({ gain: parseFloat(gainSlider.value), units: 'decibels' }).toDestination();
-            analyserWave = new Tone.Analyser('waveform', 1024);
-            analyserFft = new Tone.Analyser('fft', 256);
-            reverb = new Tone.Reverb({
-                decay: parseFloat(reverbDecay.value),
-                wet: parseFloat(reverbWet.value)
-            }).toDestination();
-            compressor = new Tone.Compressor({
-                threshold: parseFloat(compThreshold.value),
-                ratio: parseFloat(compRatio.value)
-            });
-            
-            // 5バンドEQ (フィルター) の作成
-            eqFilters = eqSliders.map(eq => {
-                return new Tone.Filter({
-                    type: 'peaking',
-                    frequency: eq.freq,
-                    Q: 1, // Q値 (固定)
-                    gain: parseFloat(eq.el.value)
-                });
-            });
+    // マスターは dB 単位で作るが、最終 destination へは masterGain を経由して接続する
+    masterGain = new Tone.Gain({ gain: parseFloat(gainSlider.value), units: 'decibels' });
+    // 分析用に Analyser を作る（タップ用）
+    analyserWave = new Tone.Analyser('waveform', 1024);
+    analyserFft = new Tone.Analyser('fft', 256);
 
-            distortion = new Tone.Distortion(parseFloat(distAmount.value));
-            
-            // 接続チェーン: Player -> Distortion -> Compressor -> EQ Filters -> Reverb -> Analysers -> MasterGain -> Destination
-            distortion.connect(compressor);
-            // ...eqFilters は配列なので、スプレッド構文でチェーンに展開
-            compressor.chain(...eqFilters);
-            eqFilters[eqFilters.length - 1].connect(reverb);
-            reverb.connect(analyserWave);
-            analyserWave.connect(analyserFft);
-            analyserFft.connect(masterGain);
-            masterGain.connect(Tone.Destination);
+    // リバーブは toDestination() に直接つなげない（必ず masterGain を通す）
+    reverb = new Tone.Reverb({
+        decay: parseFloat(reverbDecay.value),
+        // wetはAudioParamっぽいので初期値はここに
+        wet: parseFloat(reverbWet.value)
+    });
 
-            // アナライザの描画ループ開始
-            setupCanvas(waveformCanvas, waveformCtx);
-            setupCanvas(fftCanvas, fftCtx);
-            drawAnalysers();
+    compressor = new Tone.Compressor({
+        threshold: parseFloat(compThreshold.value),
+        ratio: parseFloat(compRatio.value)
+    });
 
-            isInitialized = true;
-        }
+    // 5バンドEQ を作る（peaking）。gainはAudioParamなので初期値を与える
+    eqFilters = eqSliders.map(eq => {
+        return new Tone.Filter({
+            type: 'peaking',
+            frequency: eq.freq,
+            Q: 1,
+            gain: parseFloat(eq.el.value)
+        });
+    });
+
+    // Distortion
+    distortion = new Tone.Distortion(parseFloat(distAmount.value));
+
+    // --- 接続チェーン（明確に masterGain を最後に通す） ---
+    // Player -> Distortion -> Compressor -> ...eqFilters -> Reverb -> masterGain -> Destination
+    distortion.connect(compressor);
+    compressor.chain(...eqFilters);
+    eqFilters[eqFilters.length - 1].connect(reverb);
+
+    // reverb -> masterGain -> destination
+    reverb.connect(masterGain);
+    masterGain.toDestination();
+
+    // --- アナライザは「タップ」で接続（チェーンに挟まない） ---
+    // 再生信号の観測点として reverb 出力と masterGain 出力をタップ
+    reverb.connect(analyserWave);     // 波形はリバーブ後を観測
+    masterGain.connect(analyserFft);  // FFT は最終出力を観測
+
+    // Canvas をセットアップして描画ループ開始
+    setupCanvas(waveformCanvas, waveformCtx);
+    setupCanvas(fftCanvas, fftCtx);
+    drawAnalysers();
+
+    isInitialized = true;
+}
 
         // ファイル入力
         fileInput.addEventListener('change', async (e) => {
@@ -593,19 +604,32 @@
         distAmount.addEventListener('input', (e) => {
             const val = parseFloat(e.target.value);
             distAmountValue.textContent = val.toFixed(2);
-            if (distortion) distortion.distortion = val;
+            if (distortion) {
+                // Tone.Distortion の実装差で property が AudioParam か number かが違う場合があるため両方に対応
+                if (distortion.distortion && typeof distortion.distortion === 'object' && 'value' in distortion.distortion) {
+                    distortion.distortion.value = val;
+                } else {
+                    try { distortion.distortion = val; } catch (err) { console.warn('Cannot set distortion.distortion directly', err); }
+                }
+            }
         });
 
         // EQ
-        eqSliders.forEach((eq, index) => {
-            eq.el.addEventListener('input', (e) => {
-                const gain = parseFloat(e.target.value);
-                eq.valEl.textContent = gain.toFixed(1); // 外見の更新
-                if (eqFilters && eqFilters[index]) {
-                    eqFilters[index].gain.value = gain; // 内部（Tone.js）の更新
-                }
-            });
-        });
+eqSliders.forEach((eq, index) => {
+    eq.el.addEventListener('input', (e) => {
+        const gain = parseFloat(e.target.value);
+        eq.valEl.textContent = gain.toFixed(1);
+        if (eqFilters && eqFilters[index]) {
+            // gain は AudioParam のはずなので .gain.value を使う
+            if (eqFilters[index].gain && 'value' in eqFilters[index].gain) {
+                eqFilters[index].gain.value = gain;
+            } else {
+                // まれにオブジェクト直書きが必要ならフォールバック
+                try { eqFilters[index].gain = gain; } catch (err) { console.warn('Cannot set filter gain directly', err); }
+            }
+        }
+    });
+});
 
         // リバーブ
         reverbDecay.addEventListener('input', (e) => {
@@ -619,219 +643,384 @@
             reverbWetValue.textContent = val.toFixed(2);
             if (reverb) reverb.wet.value = val;
         });
+// --- ヘルパー: ノードへ直接安全に値を書き込む ---
+function setDistortionNodeValue(node, val) {
+    if (!node) return;
+    try {
+        // Tone.Distortion は実装差があるため複数パターンに対応
+        if (node.distortion && typeof node.distortion === 'object' && 'value' in node.distortion) {
+            node.distortion.value = val;
+        } else if ('distortion' in node) {
+            node.distortion = val;
+        } else if (typeof node.set === 'function') {
+            // Toneオブジェクトの set() を使える場合
+            node.set({ distortion: val });
+        } else {
+            console.warn('Unknown distortion property shape', node);
+        }
+        console.log(`Distortion set -> ${val}`);
+    } catch (err) {
+        console.warn('Failed to set distortion on node:', err);
+    }
+}
+
+function setEqFilterGain(filterNode, val) {
+    if (!filterNode) return;
+    try {
+        if (filterNode.gain && typeof filterNode.gain === 'object' && 'value' in filterNode.gain) {
+            filterNode.gain.value = val;
+        } else if ('gain' in filterNode) {
+            filterNode.gain = val;
+        } else if (typeof filterNode.set === 'function') {
+            filterNode.set({ gain: val });
+        } else {
+            console.warn('Unknown filter gain shape', filterNode);
+        }
+        console.log(`Filter(${filterNode.frequency ? filterNode.frequency.value : 'freq?'}) gain set -> ${val}`);
+    } catch (err) {
+        console.warn('Failed to set filter gain:', err);
+    }
+}
 
         // --- AI アシスタント機能 ---
 
-        // AI設定値をスライダーとUI表示に適用するヘルパー関数
-        const setSliderValue = (slider, value, valueSpan = null, precision = 1) => {
-            if (value !== undefined && slider) {
-                // 値を浮動小数点数に変換
-                const floatValue = parseFloat(value);
-                if (isNaN(floatValue)) {
-                    console.warn(`Skipping invalid value for slider ${slider.id}: ${value}`);
-                    return;
-                }
+const setSliderValue = (slider, value, valueSpan = null, precision = 1) => {
+    if (value !== undefined && slider) {
+        const floatValue = parseFloat(value);
+        if (isNaN(floatValue)) {
+            console.warn(`Skipping invalid value for slider ${slider.id}: ${value}`);
+            return;
+        }
+        const min = parseFloat(slider.min);
+        const max = parseFloat(slider.max);
+        const finalValue = Math.max(min, Math.min(max, floatValue));
+        slider.value = finalValue;
 
-                // 範囲チェックと丸め
-                const min = parseFloat(slider.min);
-                const max = parseFloat(slider.max);
-                const finalValue = Math.max(min, Math.min(max, floatValue));
-                
-                // 1. スライダーの値を設定
-                slider.value = finalValue;
-                
-                // 2. UI表示（span）のテキストを明示的に更新 
-                if (valueSpan) {
-                    valueSpan.textContent = finalValue.toFixed(precision);
-                }
+        if (valueSpan) {
+            valueSpan.textContent = finalValue.toFixed(precision);
+        }
 
-                // 3. 'input'イベントを発火させてTone.jsのロジックをトリガー (内部反映)
-                slider.dispatchEvent(new Event('input')); 
-            }
-        };
+        // 発火はバブリングする input イベントで確実に通知
+        slider.dispatchEvent(new Event('input', { bubbles: true, cancelable: true }));
+    }
+};
 
 
         // Gemini API呼び出し
-        async function callGeminiApi(prompt) {
-            aiStatus.textContent = 'AIが設定を生成中です... しばらくお待ちください。';
-            aiGenerateBtn.disabled = true;
-            aiApplyBtn.disabled = true;
+const API_KEY = "AIzaSyDElRUWtipalplrZijKNc3GIrLQ-zzYtJE"; // ← ★ ここに一時的に直書き
+const API_URL = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent";
+async function callGeminiApi(apiUrl, apiKey, promptBody) {
+  const res = await fetch(apiUrl, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "X-goog-api-key": apiKey
+    },
+    body: JSON.stringify(promptBody)
+  });
+  return await res.json();
+}
 
-            const apiKey = "AIzaSyAGYKJmlW7YOA5ddTKyMMhxYNhlrjaRl6M";
-            let apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent`;
+// ヘルパー: dB -> リニアゲイン
+function dbToLinear(db) {
+  return Math.pow(10, db / 20);
+}
 
-            if (apiKey) {
-                apiUrl += `?key=${apiKey}`;
-            }
+// クランプ関数
+function clampNumber(v, min, max, fallback) {
+  const n = Number(v);
+  if (!isFinite(n)) return fallback;
+  if (n < min) return min;
+  if (n > max) return max;
+  return Math.round(n * 100) / 100; // 2 decimal places
+}
 
-            const systemPrompt = `あなたはプロのオーディオエンジニアです。
-ユーザーの要望に沿ったエフェクト設定を提案してください。
-回答は必ずJSON形式で、提案の簡単な説明（description）と、以下のキーを含む設定オブジェクト（settings）を返してください。
-- gain (dB, -40から10)
-- pitch (セント, -1200から1200)
-- rate (倍率, 0.5から2.0)
-- compressorThreshold (dB, -60から0)
-- compressorRatio (1から20)
-- distortionAmount (0.0から1.0)
-- eq1_60hz (dB, -20から20)
-- eq2_250hz (dB, -20から20)
-- eq3_1khz (dB, -20から20)
-- eq4_4khz (dB, -20から20)
-- eq5_10khz (dB, -20から20)
-- reverbDecay (秒, 0.1から10)
-- reverbWet (0.0から1.0)
+// WaveShaper curve generator for simple distortion
+function makeDistortionCurve(amount = 50, samples = 44100) {
+  const curve = new Float32Array(samples);
+  const k = typeof amount === "number" ? amount : 50;
+  const deg = Math.PI / 180;
+  for (let i = 0; i < samples; ++i ) {
+    const x = (i * 2) / samples - 1;
+    curve[i] = ((3 + k) * x * 20 * deg) / (Math.PI + k * Math.abs(x));
+  }
+  return curve;
+}
 
-数値は必ず指定された範囲内に収めてください。`;
+// 主処理: modelの出力を受け取ってWebAudioへ適用
+async function applySettingsToAudio(audioContext, sourceNode, parsedJson) {
+  const defaultSettings = {
+    gain: 0,
+    eq: [],
+    distortion: { type: "waveshaper", drive: 0, tone: 0.5, mix: 0 },
+    reverbWet: 0
+  };
 
-            // JSONスキーマの定義
-            const schema = {
-                type: "OBJECT",
-                properties: {
-                    "description": { "type": "STRING" },
-                    "settings": {
-                        type: "OBJECT",
-                        properties: {
-                            "gain": { "type": "NUMBER" },
-                            "pitch": { "type": "NUMBER" },
-                            "rate": { "type": "NUMBER" },
-                            "compressorThreshold": { "type": "NUMBER" },
-                            "compressorRatio": { "type": "NUMBER" },
-                            "distortionAmount": { "type": "NUMBER" },
-                            "eq1_60hz": { "type": "NUMBER" },
-                            "eq2_250hz": { "type": "NUMBER" },
-                            "eq3_1khz": { "type": "NUMBER" },
-                            "eq4_4khz": { "type": "NUMBER" },
-                            "eq5_10khz": { "type": "NUMBER" },
-                            "reverbDecay": { "type": "NUMBER" },
-                            "reverbWet": { "type": "NUMBER" }
-                        }
-                    }
-                }
-            };
+  const settings = parsedJson?.settings ? parsedJson.settings : defaultSettings;
 
-            const payload = {
-                contents: [{ parts: [{ text: prompt }] }],
-                systemInstruction: {
-                    parts: [{ text: systemPrompt }]
-                },
-                generationConfig: {
-                    responseMimeType: "application/json",
-                    responseSchema: schema
-                }
-            };
+  // validate / clamp
+  const gainDb = clampNumber(settings.gain, -24, 24, 0);
+  const reverbWet = clampNumber(settings.reverbWet, 0, 1, 0);
 
-            // リトライ処理（Exponential Backoff）
-            const MAX_RETRIES = 3;
-            try { 
-                for (let i = 0; i < MAX_RETRIES; i++) {
-                    try {
-                        const response = await fetch(apiUrl, {
-                            method: 'POST',
-                            headers: { 'Content-Type': 'application/json' },
-                            body: JSON.stringify(payload)
-                        });
+  const eqBands = Array.isArray(settings.eq) ? settings.eq.slice(0,5).map(b => ({
+    type: b.type || "peaking",
+    freq: clampNumber(b.freq, 20, 20000, 1000),
+    gain: clampNumber(b.gain, -24, 24, 0),
+    q: clampNumber(b.q, 0.1, 18.0, 1.0)
+  })) : [];
 
-                        if (!response.ok) {
-                            if (response.status === 403) {
-                                 throw new Error("403: APIキーが無効か、認証されていません。外部環境で実行する場合は、コード内のapiKeyを有効なキーに置き換えてください。");
-                            }
-                            if (i < MAX_RETRIES - 1) {
-                                await new Promise(resolve => setTimeout(resolve, Math.pow(2, i) * 1000));
-                                continue;
-                            }
-                            throw new Error(`API error: ${response.status} ${response.statusText}`);
-                        }
+  const distortion = settings.distortion || defaultSettings.distortion;
+  const distType = distortion.type || "waveshaper";
+  const drive = clampNumber(distortion.drive, 0, 1, 0);
+  const tone = clampNumber(distortion.tone, 0, 1, 0.5);
+  const mix = clampNumber(distortion.mix, 0, 1, 0);
 
-                        const result = await response.json();
-                        
-                        if (result.candidates && result.candidates[0].content?.parts?.[0]?.text) {
-                            const jsonText = result.candidates[0].content.parts[0].text;
-                            
-                            // JSON文字列のクリーンアップ
-                            const cleanedJsonText = jsonText.trim();
-                            
-                            let parsedJson;
-                            try {
-                                parsedJson = JSON.parse(cleanedJsonText);
-                            } catch (e) {
-                                console.error("Failed to parse JSON:", cleanedJsonText);
-                                throw new Error("AIからのレスポンス形式が不正です。JSONパースエラー。");
-                            }
+  // Create nodes
+  const masterGain = audioContext.createGain();
+  masterGain.gain.value = dbToLinear(gainDb);
 
-                            // レスポンスを処理
-                            aiStatus.textContent = parsedJson.description || "AIからの提案:";
-                            currentAiSettings = parsedJson.settings;
-                            aiApplyBtn.disabled = false;
-                            
-                            return; // 成功したらループを抜けて finallyへ
-                        } else {
-                            throw new Error("AIからの有効なレスポンスがありませんでした。");
-                        }
-                    } catch (error) {
-                        if (i === MAX_RETRIES - 1) {
-                            throw error;
-                        }
-                        await new Promise(resolve => setTimeout(resolve, Math.pow(2, i) * 1000));
-                    }
-                }
-            } catch (error) {
-                // エラーが発生した場合、ここで捕捉して再スロー
-                throw error;
-            } finally {
-                 // 成功・失敗に関わらず、最後にボタンを再有効化
-                aiGenerateBtn.disabled = false;
-            }
-        }
+  // EQ chain (series of BiquadFilterNodes)
+  let lastNode = sourceNode;
+  const eqNodes = [];
+  for (const band of eqBands) {
+    const f = audioContext.createBiquadFilter();
+    f.type = band.type; // 'lowshelf','peaking','highshelf'
+    f.frequency.value = band.freq;
+    f.gain.value = band.gain;
+    f.Q.value = band.q;
+    lastNode.connect(f);
+    lastNode = f;
+    eqNodes.push(f);
+  }
+
+  // Distortion
+  const dryGain = audioContext.createGain();
+  const wetGain = audioContext.createGain();
+  dryGain.gain.value = 1 - mix;
+  wetGain.gain.value = mix;
+
+  lastNode.connect(dryGain);
+  lastNode.connect(/* distortion node */);
+
+  let distortionNode;
+  if (distType === "waveshaper") {
+    distortionNode = audioContext.createWaveShaper();
+    // amount: map drive 0..1 -> curve intensity (e.g. 0..400)
+    const amount = Math.max(1, Math.round(drive * 400));
+    distortionNode.curve = makeDistortionCurve(amount);
+    // optional: apply tone with a simple high-shelf after distortion
+    const toneFilter = audioContext.createBiquadFilter();
+    toneFilter.type = "highshelf";
+    // tone 0 => darker (low gain), 1 => bright (high gain)
+    toneFilter.gain.value = (tone - 0.5) * 24; // map to -12..+12 dB
+    distortionNode.connect(toneFilter);
+    toneFilter.connect(wetGain);
+  } else if (distType === "softclip" || distType === "hardclip") {
+    // Alternative implementations: oversample + waveshaper or script processor
+    distortionNode = audioContext.createWaveShaper();
+    distortionNode.curve = makeDistortionCurve(Math.max(1, Math.round(drive * 300)));
+    distortionNode.connect(wetGain);
+  } else {
+    // fallback: passthrough
+    distortionNode = audioContext.createGain();
+    distortionNode.gain.value = 0;
+    distortionNode.connect(wetGain);
+  }
+
+  lastNode.connect(distortionNode);
+
+  // Reverb: for demo we just use ConvolverNode stub (should load IR in production)
+  const convolver = audioContext.createConvolver(); // needs IR buffer to be useful
+  const reverbWetGain = audioContext.createGain();
+  reverbWetGain.gain.value = reverbWet;
+  const reverbDryGain = audioContext.createGain();
+  reverbDryGain.gain.value = 1 - reverbWet;
+
+  // connect path: dry -> masterGain, wet (convolver) -> masterGain
+  dryGain.connect(reverbDryGain);
+  wetGain.connect(reverbDryGain); // distortion wet still goes to dry path (option)
+  reverbDryGain.connect(masterGain);
+
+  convolver.connect(reverbWetGain);
+  reverbWetGain.connect(masterGain);
+
+  // connect master to destination
+  masterGain.connect(audioContext.destination);
+}
+
+// usage example (pseudo)
+(async () => {
+  // assume there is an <audio> element or MediaElementSourceNode
+  const ctx = new (window.AudioContext || window.webkitAudioContext)();
+  const audioEl = document.querySelector("audio");
+  const src = ctx.createMediaElementSource(audioEl);
+
+  // 1) call the API (use your server endpoint ideally)
+  const promptBody = {
+    contents: [{ parts: [{ text: `
+Return ONLY a valid JSON object and NOTHING ELSE.
+Do not include explanations or text before/after the JSON.
+If you cannot comply, return exactly "{}".
+
+Schema:
+{
+  "description": string,
+  "settings": {
+    "gain": number,
+    "eq": [
+      {"type": "lowshelf|peaking|highshelf", "freq": number, "gain": number, "q": number}
+    ],
+    "distortion": {"type": "waveshaper", "drive": number, "tone": number, "mix": number},
+    "reverbWet": number
+  }
+}
+` }] }],
+    temperature: 0.0,
+    maxOutputTokens: 400,
+    candidateCount: 1
+  };
+  // for illustration only; do not expose API key in front-end
+  // const resp = await callGemini("https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent", "YOUR_API_KEY", promptBody);
+  // const rawText = resp?.candidates?.[0]?.content?.parts?.[0]?.text;
+
+  // assume rawText is the JSON-string returned by model:
+  // const parsed = JSON.parse(rawText);
+  // await applySettingsToAudio(ctx, src, parsed);
+})();
+
 
         // AI設定をスライダーとUIに適用する 
-        function applyAiSettings() {
-            if (!currentAiSettings) return;
+function applyAiSettings() {
+    if (!currentAiSettings) return;
 
-            if (!player) {
-                aiStatus.textContent = "エラー: AI設定を適用するには、先に音声ファイルを読み込んでください。";
-                return;
-            }
+    if (!player) {
+        aiStatus.textContent = "エラー: AI設定を適用するには、先に音声ファイルを読み込んでください。";
+        return;
+    }
 
-            const settings = currentAiSettings;
+    const settings = currentAiSettings;
 
-            // 各スライダーに値を適用 (スライダー、値、値表示span、小数点以下の桁数)
-            setSliderValue(gainSlider, settings.gain, gainValue, 1);
-            
-            // ピッチ/レート連動ロジックのため、rateを先に、pitchを後に設定する
-            setSliderValue(rateSlider, settings.rate, rateValue, 2); 
-            setSliderValue(pitchSlider, settings.pitch, pitchValue, 0); // pitchはセントなので小数点なし
+    // 1) スライダーを更新（UI 更新と input イベントの発火）
+    setSliderValue(gainSlider, settings.gain, gainValue, 1);
+    setSliderValue(rateSlider, settings.rate, rateValue, 2);
+    setSliderValue(pitchSlider, settings.pitch, pitchValue, 0);
 
-            // コンプレッサー、ディストーション
-            setSliderValue(compThreshold, settings.compressorThreshold, compThresholdValue, 0); // thresholdはdBなので小数点なし
-            setSliderValue(compRatio, settings.compressorRatio, compRatioValue, 1);
-            setSliderValue(distAmount, settings.distortionAmount, distAmountValue, 2);
+    setSliderValue(compThreshold, settings.compressorThreshold, compThresholdValue, 0);
+    setSliderValue(compRatio, settings.compressorRatio, compRatioValue, 1);
+    setSliderValue(distAmount, settings.distortionAmount, distAmountValue, 2);
 
-            // ★ 修正: EQをループで適用 (堅牢化)
-            eqSliders.forEach((eq) => {
-                const aiValue = settings[eq.aiKey];
-                setSliderValue(eq.el, aiValue, eq.valEl, 1); // eq.valElでUI表示も同時に更新
-            });
+    eqSliders.forEach((eq) => {
+        const aiValue = settings[eq.aiKey];
+        setSliderValue(eq.el, aiValue, eq.valEl, 1);
+    });
 
-            // リバーブ
-            setSliderValue(reverbDecay, settings.reverbDecay, reverbDecayValue, 1);
-            setSliderValue(reverbWet, settings.reverbWet, reverbWetValue, 2);
+    setSliderValue(reverbDecay, settings.reverbDecay, reverbDecayValue, 1);
+    setSliderValue(reverbWet, settings.reverbWet, reverbWetValue, 2);
 
-            aiStatus.textContent = "AIによる設定を適用しました。UIに反映されています。";
-        }
+    // 2) **フォールバックでノードへ直接反映**（イベントが走らなかった / 型差がある場合の保険）
+    // Distortion
+    if (typeof settings.distortionAmount !== 'undefined') {
+        setDistortionNodeValue(distortion, parseFloat(settings.distortionAmount));
+    }
 
-        // イベントリスナー
-        aiGenerateBtn.addEventListener('click', () => {
-            const prompt = aiPrompt.value;
-            if (prompt.trim()) {
-                aiStatus.textContent = ''; 
-                callGeminiApi(prompt).catch(error => {
-                    aiStatus.textContent = `エラー: AIとの通信に失敗しました。詳細：${error.message}`;
-                    console.error("AI Generation Error:", error);
-                });
-            } else {
-                aiStatus.textContent = "テキストボックスに要望を入力してください。";
+    // EQ の各フィルタに直接書き込む（eqFilters がきちんと生成されているかチェック）
+    if (eqFilters && Array.isArray(eqFilters)) {
+        eqSliders.forEach((eq, idx) => {
+            const aiValue = settings[eq.aiKey];
+            if (typeof aiValue !== 'undefined' && eqFilters[idx]) {
+                setEqFilterGain(eqFilters[idx], parseFloat(aiValue));
             }
         });
+    } else {
+        console.warn('eqFilters not initialized yet when applying AI settings');
+    }
+
+    aiStatus.textContent = "AIによる設定を適用しました。UIに反映されています。";
+}
+
+
+        // イベントリスナー
+        aiGenerateBtn.addEventListener('click', async () => {
+    const prompt = aiPrompt.value.trim();
+    if (!prompt) {
+        aiStatus.textContent = "テキストボックスに要望を入力してください。";
+        return;
+    }
+
+    aiStatus.textContent = "AIに問い合わせ中...";
+    try {
+        const promptBody = {
+            contents: [{
+                parts: [{
+                    text: `
+あなたは音響エンジニアです。
+次の要望に合うエフェクト設定を**JSONのみで出力**してください。
+
+🚫禁止事項：
+- コードブロック（\`\`\`）を使わない
+- コメントや説明文を入れない
+
+必ず以下のJSONスキーマに準拠したJSONのみを出力：
+
+{
+  "gain": number,
+  "rate": number,
+  "pitch": number,
+  "compressorThreshold": number,
+  "compressorRatio": number,
+  "distortionAmount": number,
+  "eq1_60hz": number,
+  "eq2_250hz": number,
+  "eq3_1khz": number,
+  "eq4_4khz": number,
+  "eq5_10khz": number,
+  "reverbDecay": number,
+  "reverbWet": number
+}
+
+要望: ${prompt}
+`
+                }]
+            }]
+        };
+
+const res = await fetch(API_URL, {
+  method: "POST",
+  headers: {
+    "Content-Type": "application/json",
+    "X-goog-api-key": API_KEY
+  },
+  body: JSON.stringify(promptBody)
+});
+
+const data = await res.json();
+const text = data?.candidates?.[0]?.content?.parts?.[0]?.text || "{}";
+
+const jsonText = text
+  .replace(/```json\s*/i, "")
+  .replace(/```/g, "")
+  .trim();
+
+let parsed;
+try {
+  parsed = JSON.parse(jsonText);
+} catch (err) {
+  aiStatus.textContent = "AIの出力を解析できませんでした。再試行してください。";
+  console.error("JSON parse error:", err, "AI output:", text);
+  return;
+}
+
+currentAiSettings = parsed;
+aiResponseArea.textContent = JSON.stringify(parsed, null, 2);
+aiStatus.textContent = "AI設定を取得しました。［設定を適用］を押してください。";
+aiApplyBtn.disabled = false;
+
+    } catch (err) {
+        console.error(err);
+        aiStatus.textContent = `エラー: AIとの通信に失敗しました (${err.message})`;
+    }
+});
+
 
         aiApplyBtn.addEventListener('click', applyAiSettings);
 
