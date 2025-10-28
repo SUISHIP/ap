@@ -538,6 +538,9 @@
 
             stopTimer = setTimeout(() => {
                 if (isPlaying) {
+                    if (player) {
+                        player.stop();
+                    }
                     Tone.Transport.stop();
                     Tone.Transport.position = 0;
                     isPlaying = false;
@@ -579,11 +582,15 @@
             const userPitch = parseFloat(e.target.value);
             pitchValue.textContent = userPitch.toFixed(0);
             if (player) {
-                // ピッチ補正を再計算して加算
                 const rate = parseFloat(rateSlider.value);
                 const speedCorrection = 1200 * Math.log2(1 / rate);
-                // 最終ピッチ = ユーザーが設定したピッチ + 速度変化を打ち消すための逆補正
-                player.detune = userPitch + speedCorrection;
+                const detuneValue = userPitch + speedCorrection;
+        
+                if (player.detune && typeof player.detune === 'object' && 'value' in player.detune) {
+                    player.detune.value = detuneValue;
+                } else {
+                    player.set({ detune: detuneValue }); // ← Tone.js推奨の書き方
+                }
             }
         });
 
