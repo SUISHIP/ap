@@ -961,28 +961,29 @@ function applyAiSettings() {
                 parts: [{
                     text: `
 あなたは音響エンジニアです。
-次の要望に合うエフェクト設定を**JSONのみで出力**してください。
+次の要望に合うエフェクト設定を **JSON のみで出力** してください。
 
 🚫禁止事項：
 - コードブロック（\`\`\`）を使わない
 - コメントや説明文を入れない
+- JSON以外の出力をしない
 
-必ず以下のJSONスキーマに準拠したJSONのみを出力：
+必ず以下のJSONスキーマに準拠し、各数値は指定範囲を厳守してください：
 
 {
-  "gain": number,
-  "rate": number,
-  "pitch": number,
-  "compressorThreshold": number,
-  "compressorRatio": number,
-  "distortionAmount": number,
-  "eq1_60hz": number,
-  "eq2_250hz": number,
-  "eq3_1khz": number,
-  "eq4_4khz": number,
-  "eq5_10khz": number,
-  "reverbDecay": number,
-  "reverbWet": number
+  "gain": number,                // 出力音量 [-40.0 ～ 10.0] dB
+  "rate": number,                // 再生速度 [0.50 ～ 2.00] 倍
+  "pitch": number,               // ピッチベンド [-1200 ～ 1200] セント
+  "compressorThreshold": number, // コンプレッサー閾値 [-60 ～ 0] dB
+  "compressorRatio": number,     // コンプレッサー比率 [1 ～ 20]
+  "distortionAmount": number,    // ディストーション強度 [0.00 ～ 1.00]
+  "eq1_60hz": number,            // EQ 60Hz帯 [-20.0 ～ +20.0] dB
+  "eq2_250hz": number,           // EQ 250Hz帯 [-20.0 ～ +20.0] dB
+  "eq3_1khz": number,            // EQ 1kHz帯 [-20.0 ～ +20.0] dB
+  "eq4_4khz": number,            // EQ 4kHz帯 [-20.0 ～ +20.0] dB
+  "eq5_10khz": number,           // EQ 10kHz帯 [-20.0 ～ +20.0] dB
+  "reverbDecay": number,         // リバーブ減衰時間 [0.1 ～ 10.0] 秒
+  "reverbWet": number            // リバーブのウェット量 [0.00 ～ 1.00]
 }
 
 要望: ${prompt}
